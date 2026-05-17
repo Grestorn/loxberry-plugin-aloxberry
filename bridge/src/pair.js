@@ -24,7 +24,13 @@
 // here, but routing/WSS concerns live in ws-handlers.js, and HTTP serving
 // lives in http-handlers.js. Easy to unit-test in isolation.
 
-const DEFAULT_TTL_MS = 10 * 60 * 1000;
+// Default 10 min. Overridable via PAIR_TTL_MS (milliseconds) for controlled,
+// time-boxed scenarios such as Alexa certification review, where an external
+// reviewer needs a longer-lived code. Keep any override modest (hours, not
+// weeks) and remove it afterwards: the code is still one-shot, but a longer
+// pre-redemption window is a wider exposure if it leaks. Default is unchanged
+// so a normal deployment ships nothing weakened.
+const DEFAULT_TTL_MS = Number.parseInt(process.env.PAIR_TTL_MS, 10) || 10 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 60 * 1000;
 
 const entries = new Map(); // code → { userId, skillSecret, expiresAt }
