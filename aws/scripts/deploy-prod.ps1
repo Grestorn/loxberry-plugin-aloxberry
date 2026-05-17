@@ -22,11 +22,13 @@
 #   .\aws\scripts\deploy-prod.ps1 -BuildOnly
 #   .\aws\scripts\deploy-prod.ps1 -ShowBridgeSecret    # just dump the value, no deploy
 #   .\aws\scripts\deploy-prod.ps1 -LogLevel DEBUG      # verbose Lambda logging
+#   .\aws\scripts\deploy-prod.ps1 -Force               # don't error on an empty changeset
 
 [CmdletBinding()]
 param(
     [switch] $BuildOnly,
     [switch] $ShowBridgeSecret,
+    [switch] $Force,
     [string] $Profile = 'loxberry-alexa',
     [string] $Region  = 'eu-west-1',
     # Lambda log level. Defaults to INFO. The @aloxberry/shared logger filters
@@ -171,12 +173,41 @@ try {
 
     Write-Host ""
     Write-Host "==> sam deploy (LogLevel=$LogLevel)" -ForegroundColor Cyan
-    Write-Host "    (BridgeUrl + BridgeDispatchSecretParam come from samconfig.toml)"
-    # --parameter-overrides MERGES with samconfig.toml's parameter_overrides
-    # (doesn't replace), so BridgeUrl etc. remain in effect. Only LogLevel is
-    # overridden here.
-    sam deploy --profile $Profile --region $Region `
-        --parameter-overrides "LogLevel=$LogLevel"
+
+    # IMPORTANT: SAM CLI does NOT merge a command-line --parameter-overrides
+    # with the parameter_overrides in samconfig.toml. The CLI value REPLACES
+    # the file value wholesale, and any parameter not restated falls back to
+    # the deployed stack's PREVIOUS value. Passing only "LogLevel=..." here
+    # silently dropped Stage / AlexaSkillId / BridgeUrl /
+    # BridgeDispatchSecretParam, so editing AlexaSkillId in samconfig.toml
+    # produced "no changes to deploy" (it kept the old skill id). We read the
+    # file's parameter_overrides and append LogLevel so the full set is sent.
+    $samconfig = Join-Path $awsDir 'samconfig.toml'
+    $cfgParams = ''
+    if (Test-Path $samconfig) {
+        $m = Select-String -Path $samconfig `
+                -Pattern '^\s*parameter_overrides\s*=\s*"(.*)"\s*$' |
+             Select-Object -First 1
+        if ($m) { $cfgParams = $m.Matches[0].Groups[1].Value }
+    }
+    if (-not $cfgParams) {
+        Write-Warning "Could not read parameter_overrides from $samconfig - deploying with LogLevel only. AlexaSkillId/BridgeUrl will fall back to the stack's previous values."
+    }
+    $mergedParams = (($cfgParams + ' ' + "LogLevel=$LogLevel")).Trim()
+    Write-Host "    parameter-overrides: $mergedParams"
+
+    $deployArgs = @(
+        '--profile', $Profile, '--region', $Region,
+        '--parameter-overrides', $mergedParams
+    )
+    if ($Force) {
+        # CloudFormation is declarative - there is no "force a no-op change".
+        # This only stops an empty changeset being treated as an error, for
+        # when a redeploy legitimately has nothing to change.
+        Write-Host "    -Force: empty changeset will not fail the run" -ForegroundColor DarkYellow
+        $deployArgs += '--no-fail-on-empty-changeset'
+    }
+    sam deploy @deployArgs
     if ($LASTEXITCODE -ne 0) { throw 'sam deploy failed' }
 
     Write-Host ""
