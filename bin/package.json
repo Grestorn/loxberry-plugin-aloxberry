@@ -1,12 +1,12 @@
 {
   "name": "@aloxberry/daemon",
   "version": "0.6.1",
-  "description": "LoxBerry plugin daemon for the Aloxberry Alexa Smart Home integration. Holds the outbound WSS connection to the dispatch bridge, subscribes to Miniserver state events over WebSocket, and shells out to a small Perl helper (using LoxBerry::IO) for outbound commands. End-to-end HMAC auth with the AWS Lambda — the bridge is a dumb router.",
+  "description": "LoxBerry plugin daemon for Aloxberry, the Alexa Smart Home integration for Loxone. Holds the outbound WSS connection to the dispatch bridge, subscribes to Miniserver state events over WebSocket, and shells out to a small Perl helper (using LoxBerry::IO) for outbound commands. End-to-end HMAC auth with the AWS Lambda — the bridge is a dumb router.",
   "private": true,
   "main": "src/index.js",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=18"
   },
   "scripts": {
     "start": "node src/index.js"

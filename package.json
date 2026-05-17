@@ -1,7 +1,7 @@
 {
   "name": "loxberry-plugin-aloxberry",
   "version": "0.6.1",
-  "description": "LoxBerry Alexa Smart Home plugin (release tooling only — not a runtime dependency of the plugin)",
+  "description": "Aloxberry — LoxBerry Alexa Smart Home plugin (release tooling only — not a runtime dependency of the plugin)",
   "private": true,
   "scripts": {
     "release:major": "node .github/release.js major false",

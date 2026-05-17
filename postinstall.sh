@@ -18,18 +18,18 @@ PCONFIG=$LBPCONFIG/$PDIR
 PLOGS=$LBPLOG/$PDIR   # ramdisk — wiped on reboot
 
 # ---- 0. Diagnostic header -------------------------------------------------
-echo "<INFO> Alexa Smart Home: POSTINSTALL — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
-echo "<INFO> Alexa Smart Home: POSTINSTALL — PBIN=$PBIN PCONFIG=$PCONFIG PDATA=$PDATA"
+echo "<INFO> Aloxberry: POSTINSTALL — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
+echo "<INFO> Aloxberry: POSTINSTALL — PBIN=$PBIN PCONFIG=$PCONFIG PDATA=$PDATA"
 if [ -f "$PTEMPPATH/_daemon_was_running" ]; then
-    echo "<INFO> Alexa Smart Home: POSTINSTALL — upgrade context detected (marker present)"
+    echo "<INFO> Aloxberry: POSTINSTALL — upgrade context detected (marker present)"
 else
-    echo "<INFO> Alexa Smart Home: POSTINSTALL — fresh install context (no marker)"
+    echo "<INFO> Aloxberry: POSTINSTALL — fresh install context (no marker)"
 fi
 
 # Log state of $PCONFIG on entry — tells us whether LoxBerry's unpack
 # preserved or wiped it. If wiped during upgrade, postupgrade.sh restore
 # is doing the heavy lifting.
-echo "<INFO> Alexa Smart Home: POSTINSTALL — $PCONFIG on entry:"
+echo "<INFO> Aloxberry: POSTINSTALL — $PCONFIG on entry:"
 if [ -d "$PCONFIG" ]; then
     ls -la "$PCONFIG" 2>&1 | sed 's/^/<INFO>   /'
 else
@@ -37,20 +37,20 @@ else
 fi
 
 # ---- 1. Create runtime directories ----------------------------------------
-echo "<INFO> Alexa Smart Home: POSTINSTALL — creating data/config/log dirs ..."
+echo "<INFO> Aloxberry: POSTINSTALL — creating data/config/log dirs ..."
 mkdir -p "$PDATA"
 mkdir -p "$PCONFIG"
 mkdir -p "$PCONFIG/identity"
 chmod 700 "$PCONFIG/identity"   # holds skillSecret — restrict perms
 mkdir -p "$PLOGS"
-echo "<OK> Alexa Smart Home: POSTINSTALL — directories ready."
+echo "<OK> Aloxberry: POSTINSTALL — directories ready."
 
 # ---- 2. Install Node.js dependencies for the daemon -----------------------
-# The daemon needs Node 24+ (per bin/package.json#engines.node). preinstall.sh
+# The daemon needs Node 18+ (per bin/package.json#engines.node). preinstall.sh
 # already verified this; if we're here we can run `npm install` confidently.
-echo "<INFO> Alexa Smart Home: Installing Node.js daemon dependencies..."
+echo "<INFO> Aloxberry: Installing Node.js daemon dependencies..."
 if [ ! -f "$PBIN/package.json" ]; then
-    echo "<ERROR> Alexa Smart Home: $PBIN/package.json missing — bad install state."
+    echo "<ERROR> Aloxberry: $PBIN/package.json missing — bad install state."
     exit 2
 fi
 
@@ -59,10 +59,10 @@ cd "$PBIN" || exit 2
 # daemon's logger (bin/src/log.js) has zero runtime deps, so there's
 # nothing pretty-printer-shaped to ship.
 if ! npm install --omit=dev --no-audit --no-fund --silent 2>&1; then
-    echo "<ERROR> Alexa Smart Home: npm install failed."
+    echo "<ERROR> Aloxberry: npm install failed."
     exit 2
 fi
-echo "<OK> Alexa Smart Home: Daemon dependencies installed."
+echo "<OK> Aloxberry: Daemon dependencies installed."
 
 # ---- 3. Default daemon.env (only if it doesn't already exist) --------------
 # This file holds runtime config (non-secret). The web UI will eventually
@@ -70,7 +70,7 @@ echo "<OK> Alexa Smart Home: Daemon dependencies installed."
 # don't want to go through the UI immediately.
 DAEMON_ENV="$PCONFIG/daemon.env"
 if [ ! -f "$DAEMON_ENV" ]; then
-    echo "<INFO> Alexa Smart Home: Writing default daemon.env..."
+    echo "<INFO> Aloxberry: Writing default daemon.env..."
     cat > "$DAEMON_ENV" <<'EOF'
 # Aloxberry daemon runtime config.
 # Edit via the plugin's web UI, or by hand and `bin/control.sh restart`.
@@ -87,9 +87,9 @@ BRIDGE_URL=https://loxhome-bridge.net
 LOCAL_HTTP_PORT=7800
 EOF
     chmod 600 "$DAEMON_ENV"
-    echo "<OK> Alexa Smart Home: Default config written to $DAEMON_ENV"
+    echo "<OK> Aloxberry: Default config written to $DAEMON_ENV"
 else
-    echo "<INFO> Alexa Smart Home: Existing daemon.env preserved."
+    echo "<INFO> Aloxberry: Existing daemon.env preserved."
 fi
 
 # ---- 4. Make bin scripts executable ----------------------------------------
@@ -123,15 +123,15 @@ chmod +x "$PBIN/lox-control.pl" 2>/dev/null
 #     identity would be broken. Skip auto-start; postupgrade.sh handles
 #     the start AFTER restoring config.
 if [ -f "$PTEMPPATH/_daemon_was_running" ]; then
-    echo "<INFO> Alexa Smart Home: Upgrade in progress; postupgrade.sh will start the daemon after restoring config."
+    echo "<INFO> Aloxberry: Upgrade in progress; postupgrade.sh will start the daemon after restoring config."
 else
-    echo "<INFO> Alexa Smart Home: Starting daemon..."
+    echo "<INFO> Aloxberry: Starting daemon..."
     if "$PBIN/control.sh" start; then
-        echo "<OK> Alexa Smart Home: Daemon started."
+        echo "<OK> Aloxberry: Daemon started."
     else
         # Treat a failed start as a warning, not fatal: the files are in
         # place, the user just needs to inspect logs and start it themselves.
-        echo "<WARNING> Alexa Smart Home: Daemon did not start cleanly."
+        echo "<WARNING> Aloxberry: Daemon did not start cleanly."
         echo "<WARNING>                   Open the plugin's Setup tab or run:"
         echo "<WARNING>                     $PBIN/control.sh start"
     fi
@@ -139,11 +139,11 @@ fi
 
 # ---- 6. Final hint ---------------------------------------------------------
 if [ -f "$PTEMPPATH/_daemon_was_running" ]; then
-    echo "<INFO> Alexa Smart Home: POSTINSTALL — done; postupgrade.sh will restore config and restart the daemon."
+    echo "<INFO> Aloxberry: POSTINSTALL — done; postupgrade.sh will restore config and restart the daemon."
 else
-    echo "<INFO> Alexa Smart Home: POSTINSTALL — plugin installed and daemon running."
+    echo "<INFO> Aloxberry: POSTINSTALL — plugin installed and daemon running."
     echo "<INFO>                                  Open the plugin's web UI to pair Alexa."
 fi
 
-echo "<OK> Alexa Smart Home: POSTINSTALL — completed."
+echo "<OK> Aloxberry: POSTINSTALL — completed."
 exit 0

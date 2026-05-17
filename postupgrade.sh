@@ -46,25 +46,25 @@ PCONFIG=$LBPCONFIG/$PDIR
 PSBIN=$LBPSBIN/$PDIR
 PBIN=$LBPBIN/$PDIR
 
-echo "<INFO> Alexa Smart Home: POSTUPGRADE — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
-echo "<INFO> Alexa Smart Home: POSTUPGRADE — PCONFIG=$PCONFIG PDATA=$PDATA PBIN=$PBIN"
+echo "<INFO> Aloxberry: POSTUPGRADE — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
+echo "<INFO> Aloxberry: POSTUPGRADE — PCONFIG=$PCONFIG PDATA=$PDATA PBIN=$PBIN"
 
 # Log $PCONFIG state on entry — if it was wiped by LoxBerry's unpack step
 # we'll see that here, and the restore that follows will fill it back in.
-echo "<INFO> Alexa Smart Home: POSTUPGRADE — inspecting $PCONFIG before restore:"
+echo "<INFO> Aloxberry: POSTUPGRADE — inspecting $PCONFIG before restore:"
 if [ -d "$PCONFIG" ]; then
     ls -la "$PCONFIG" 2>&1 | sed 's/^/<INFO>   /'
     if [ -f "$PCONFIG/identity/userId" ]; then
         UID_CUR="$(cat "$PCONFIG/identity/userId" 2>/dev/null)"
-        echo "<INFO> Alexa Smart Home: POSTUPGRADE — current userId on disk=$UID_CUR"
+        echo "<INFO> Aloxberry: POSTUPGRADE — current userId on disk=$UID_CUR"
     else
-        echo "<INFO> Alexa Smart Home: POSTUPGRADE — no userId on disk (will be restored from backup)"
+        echo "<INFO> Aloxberry: POSTUPGRADE — no userId on disk (will be restored from backup)"
     fi
 else
-    echo "<INFO> Alexa Smart Home: POSTUPGRADE — $PCONFIG missing before restore (will be restored from backup)"
+    echo "<INFO> Aloxberry: POSTUPGRADE — $PCONFIG missing before restore (will be restored from backup)"
 fi
 
-echo "<INFO> Alexa Smart Home: POSTUPGRADE — restoring config/data/logs from $PTEMPPATH/upgrade ..."
+echo "<INFO> Aloxberry: POSTUPGRADE — restoring config/data/logs from $PTEMPPATH/upgrade ..."
 [ -d "$PTEMPPATH/upgrade/config" ] && cp -p -r $PTEMPPATH/upgrade/config/. $PCONFIG/ 2>/dev/null
 [ -d "$PTEMPPATH/upgrade/data" ]   && cp -p -r $PTEMPPATH/upgrade/data/.   $PDATA/   2>/dev/null
 [ -d "$PTEMPPATH/upgrade/logs" ]   && cp -p -r $PTEMPPATH/upgrade/logs/.   $PLOGS/   2>/dev/null
@@ -73,13 +73,13 @@ echo "<INFO> Alexa Smart Home: POSTUPGRADE — restoring config/data/logs from $
 # what determines whether existing Alexa pairings survive the upgrade.
 if [ -f "$PCONFIG/identity/userId" ]; then
     UID_AFTER="$(cat "$PCONFIG/identity/userId" 2>/dev/null)"
-    echo "<OK> Alexa Smart Home: POSTUPGRADE — identity restored (userId=$UID_AFTER)"
+    echo "<OK> Aloxberry: POSTUPGRADE — identity restored (userId=$UID_AFTER)"
 else
-    echo "<ERROR> Alexa Smart Home: POSTUPGRADE — identity userId file MISSING after restore"
+    echo "<ERROR> Aloxberry: POSTUPGRADE — identity userId file MISSING after restore"
     echo "<ERROR>                   Existing Alexa pairings WILL break; re-pair required."
 fi
 
-echo "<INFO> Alexa Smart Home: POSTUPGRADE — removing temp folders"
+echo "<INFO> Aloxberry: POSTUPGRADE — removing temp folders"
 rm -rf $PTEMPPATH/upgrade
 
 # Start the daemon. Two notes on why this is `restart` instead of `start`:
@@ -93,15 +93,15 @@ rm -rf $PTEMPPATH/upgrade
 #      is the bug we just hunted: a still-running daemon doesn't re-read
 #      the file when it's restored.
 if [ -f "$PTEMPPATH/_daemon_was_running" ]; then
-    echo "<INFO> Alexa Smart Home: POSTUPGRADE — daemon was running before upgrade; restarting ..."
+    echo "<INFO> Aloxberry: POSTUPGRADE — daemon was running before upgrade; restarting ..."
     if "$PBIN/control.sh" restart; then
-        echo "<OK> Alexa Smart Home: POSTUPGRADE — daemon restarted."
+        echo "<OK> Aloxberry: POSTUPGRADE — daemon restarted."
     else
-        echo "<WARNING> Alexa Smart Home: POSTUPGRADE — daemon did not restart cleanly; check $PLOGS"
+        echo "<WARNING> Aloxberry: POSTUPGRADE — daemon did not restart cleanly; check $PLOGS"
     fi
 else
-    echo "<INFO> Alexa Smart Home: POSTUPGRADE — daemon was not running before upgrade; not starting."
+    echo "<INFO> Aloxberry: POSTUPGRADE — daemon was not running before upgrade; not starting."
 fi
 
-echo "<OK> Alexa Smart Home: POSTUPGRADE — completed"
+echo "<OK> Aloxberry: POSTUPGRADE — completed"
 exit 0

@@ -19,7 +19,7 @@ PCONFIG=$LBPCONFIG/$PDIR
 PSBIN=$LBPSBIN/$PDIR
 PBIN=$LBPBIN/$PDIR
 
-echo "Alexa Smart Home: Starting uninstallation..."
+echo "Aloxberry: Starting uninstallation..."
 
 # Stop the daemon before LoxBerry removes its files.
 if [ -x "$PBIN/control.sh" ]; then
@@ -31,5 +31,5 @@ fi
 # This means the identity files (userId + skillSecret) ARE deleted on
 # uninstall — the operator must re-link Alexa after a fresh re-install.
 
-echo "Alexa Smart Home: Uninstallation completed"
+echo "Aloxberry: Uninstallation completed"
 exit 0

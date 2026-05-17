@@ -46,8 +46,8 @@ PCONFIG=$LBPCONFIG/$PDIR
 PSBIN=$LBPSBIN/$PDIR
 PBIN=$LBPBIN/$PDIR
 
-echo "<INFO> Alexa Smart Home: PREUPGRADE — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
-echo "<INFO> Alexa Smart Home: PREUPGRADE — PCONFIG=$PCONFIG PDATA=$PDATA PBIN=$PBIN"
+echo "<INFO> Aloxberry: PREUPGRADE — PDIR=$PDIR PVERSION=$PVERSION PTEMPPATH=$PTEMPPATH"
+echo "<INFO> Aloxberry: PREUPGRADE — PCONFIG=$PCONFIG PDATA=$PDATA PBIN=$PBIN"
 
 # Stop the daemon before the upgrade rewrites $LBPBIN. We delegate to the
 # control.sh on disk (still the OLD version at this point — the upgrade hasn't
@@ -56,17 +56,17 @@ echo "<INFO> Alexa Smart Home: PREUPGRADE — PCONFIG=$PCONFIG PDATA=$PDATA PBIN
 if [ -x "$PBIN/control.sh" ]; then
     if "$PBIN/control.sh" status >/dev/null 2>&1; then
         echo "1" > "$PTEMPPATH/_daemon_was_running"
-        echo "<INFO> Alexa Smart Home: PREUPGRADE — daemon is running; marker written, stopping ..."
+        echo "<INFO> Aloxberry: PREUPGRADE — daemon is running; marker written, stopping ..."
         "$PBIN/control.sh" stop || true
-        echo "<INFO> Alexa Smart Home: PREUPGRADE — daemon stop completed."
+        echo "<INFO> Aloxberry: PREUPGRADE — daemon stop completed."
     else
-        echo "<INFO> Alexa Smart Home: PREUPGRADE — daemon was not running; nothing to stop, no marker written."
+        echo "<INFO> Aloxberry: PREUPGRADE — daemon was not running; nothing to stop, no marker written."
     fi
 else
-    echo "<INFO> Alexa Smart Home: PREUPGRADE — control.sh not found at $PBIN/control.sh (first install?)"
+    echo "<INFO> Aloxberry: PREUPGRADE — control.sh not found at $PBIN/control.sh (first install?)"
 fi
 
-echo "<INFO> Alexa Smart Home: PREUPGRADE — creating temp folders under $PTEMPPATH/upgrade"
+echo "<INFO> Aloxberry: PREUPGRADE — creating temp folders under $PTEMPPATH/upgrade"
 mkdir -p $PTEMPPATH/upgrade
 mkdir -p $PTEMPPATH/upgrade/config
 mkdir -p $PTEMPPATH/upgrade/data
@@ -75,24 +75,24 @@ mkdir -p $PTEMPPATH/upgrade/logs
 # Log the pre-backup state so we can diagnose loss issues. The identity
 # files matter the most — if we don't see them here, every Alexa pairing
 # is going to break on this upgrade.
-echo "<INFO> Alexa Smart Home: PREUPGRADE — inspecting $PCONFIG before backup:"
+echo "<INFO> Aloxberry: PREUPGRADE — inspecting $PCONFIG before backup:"
 if [ -d "$PCONFIG" ]; then
     ls -la "$PCONFIG" 2>&1 | sed 's/^/<INFO>   /'
     if [ -d "$PCONFIG/identity" ]; then
-        echo "<INFO> Alexa Smart Home: PREUPGRADE — identity dir contents:"
+        echo "<INFO> Aloxberry: PREUPGRADE — identity dir contents:"
         ls -la "$PCONFIG/identity" 2>&1 | sed 's/^/<INFO>   /'
         if [ -f "$PCONFIG/identity/userId" ]; then
             UID_VAL="$(cat "$PCONFIG/identity/userId" 2>/dev/null)"
-            echo "<INFO> Alexa Smart Home: PREUPGRADE — current userId=$UID_VAL"
+            echo "<INFO> Aloxberry: PREUPGRADE — current userId=$UID_VAL"
         fi
     else
-        echo "<WARNING> Alexa Smart Home: PREUPGRADE — no identity dir at $PCONFIG/identity"
+        echo "<WARNING> Aloxberry: PREUPGRADE — no identity dir at $PCONFIG/identity"
     fi
 else
-    echo "<WARNING> Alexa Smart Home: PREUPGRADE — $PCONFIG does not exist before backup"
+    echo "<WARNING> Aloxberry: PREUPGRADE — $PCONFIG does not exist before backup"
 fi
 
-echo "<INFO> Alexa Smart Home: PREUPGRADE — backing up config/data/logs ..."
+echo "<INFO> Aloxberry: PREUPGRADE — backing up config/data/logs ..."
 [ -d "$PCONFIG" ] && cp -p -r $PCONFIG/. $PTEMPPATH/upgrade/config/ 2>/dev/null
 [ -d "$PDATA" ]   && cp -p -r $PDATA/.   $PTEMPPATH/upgrade/data/   2>/dev/null
 [ -d "$PLOGS" ]   && cp -p -r $PLOGS/.   $PTEMPPATH/upgrade/logs/   2>/dev/null
@@ -102,10 +102,10 @@ echo "<INFO> Alexa Smart Home: PREUPGRADE — backing up config/data/logs ..."
 # bit; explicit log so we know the backup is intact.
 if [ -f "$PTEMPPATH/upgrade/config/identity/userId" ]; then
     BACKED_UID="$(cat "$PTEMPPATH/upgrade/config/identity/userId" 2>/dev/null)"
-    echo "<OK> Alexa Smart Home: PREUPGRADE — identity backed up (userId=$BACKED_UID)"
+    echo "<OK> Aloxberry: PREUPGRADE — identity backed up (userId=$BACKED_UID)"
 else
-    echo "<WARNING> Alexa Smart Home: PREUPGRADE — identity userId file NOT backed up (would cause re-pair after upgrade)"
+    echo "<WARNING> Aloxberry: PREUPGRADE — identity userId file NOT backed up (would cause re-pair after upgrade)"
 fi
 
-echo "<OK> Alexa Smart Home: PREUPGRADE — completed"
+echo "<OK> Aloxberry: PREUPGRADE — completed"
 exit 0

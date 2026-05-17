@@ -1,4 +1,4 @@
-# Project: Loxberry Alexa Smart Home Plugin
+# Project: Aloxberry — Loxberry Alexa Smart Home Plugin
 
 ## Goal
 Build an open-source Alexa Smart Home Skill integration for the Loxone home automation

@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-# Aloxberry — Alexa Smart Home plugin config UI.
+# Aloxberry — Alexa Smart Home plugin for Loxone: config UI.
 #
 # Three-page CGI:
 #   ?page=status   — "Setup" tab: connection state, daemon control, pair
