@@ -1,0 +1,319 @@
+<!--
+  Aloxberry - Alexa Smart Home plugin config UI.
+  Rendered by webfrontend/htmlauth/index.cgi.
+
+  This file uses HTML::Template tags. Variables come in via the CGI's
+  $template->param() call. See https://metacpan.org/pod/HTML::Template
+  for the tag reference.
+
+  IMPORTANT: do NOT name any HTML::Template tag inside HTML comments here.
+  HTML::Template scans the raw file for tag openers and does not respect
+  HTML comment syntax, so a casual reference can trip the parser.
+
+  We deliberately keep the markup minimal and inline the styles: LoxBerry's
+  base CSS (loaded by lbheader/lbfooter) gives us body + nav chrome; we
+  just need card-like sections for the status + action groups.
+-->
+<style>
+  .ax-card { background: var(--lb-card-bg, #fff); border: 1px solid #ddd;
+             border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0;
+             box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .ax-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+  .ax-row { display: flex; align-items: baseline; gap: 0.5rem;
+            padding: 0.25rem 0; flex-wrap: wrap; }
+  .ax-row .ax-label { min-width: 9rem; color: #555; font-size: 0.9rem; }
+  .ax-row .ax-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                      word-break: break-all; }
+  .ax-pill { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 12px;
+             font-size: 0.85rem; font-weight: 600; }
+  .ax-pill-ok   { background: #d6f5d6; color: #186218; }
+  .ax-pill-bad  { background: #fdd; color: #882020; }
+  .ax-err { color: #882020; font-size: 0.85rem; }
+  .ax-flash { padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
+  .ax-flash.info    { background: #e6f0ff; color: #1f3a6a; border: 1px solid #b6cfff; }
+  .ax-flash.success { background: #d6f5d6; color: #186218; border: 1px solid #8bd48b; }
+  .ax-flash.warn    { background: #fff3cd; color: #856404; border: 1px solid #ffe066; }
+  .ax-flash.error   { background: #fdd;    color: #882020; border: 1px solid #f4a0a0; }
+  .ax-pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                  font-size: 2rem; letter-spacing: 0.25em; text-align: center;
+                  padding: 1rem; margin: 0.5rem 0; background: #f3f3f3;
+                  border-radius: 6px; user-select: all; }
+  .ax-buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .ax-btn { padding: 0.5rem 0.9rem; font-size: 0.95rem; border-radius: 6px;
+            border: 1px solid #aaa; background: #f8f8f8; cursor: pointer; }
+  .ax-btn:hover { background: #eee; }
+  .ax-btn-primary { background: #0d7; color: #fff; border-color: #0b6; }
+  .ax-btn-primary:hover { background: #0b6; }
+  .ax-btn-danger  { background: #c33; color: #fff; border-color: #a22; }
+  .ax-btn-danger:hover { background: #a22; }
+  .ax-hint { color: #777; font-size: 0.85rem; margin-top: 0.3rem; }
+  code.ax-inline { background: #f3f3f3; padding: 0.05rem 0.3rem; border-radius: 3px; }
+</style>
+
+<TMPL_IF HAS_FLASH>
+  <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
+</TMPL_IF>
+
+<!-- ============================================================ -->
+<!-- Status                                                       -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=STATUS.SECTION_STATUS></h2>
+
+  <div class="ax-row">
+    <span class="ax-label"><TMPL_VAR NAME=STATUS.DAEMON></span>
+    <TMPL_IF DAEMON_RUNNING>
+      <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.RUNNING></span>
+      <span class="ax-value">PID <TMPL_VAR DAEMON_PID></span>
+    <TMPL_ELSE>
+      <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.STOPPED></span>
+    </TMPL_IF>
+  </div>
+
+  <div class="ax-row">
+    <span class="ax-label"><TMPL_VAR NAME=STATUS.BRIDGE></span>
+    <TMPL_IF BRIDGE_CONNECTED>
+      <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.CONNECTED></span>
+      <TMPL_IF BRIDGE_LAST_AT>
+        <span class="ax-hint">since <TMPL_VAR BRIDGE_LAST_AT ESCAPE=HTML></span>
+      </TMPL_IF>
+    <TMPL_ELSE>
+      <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.DISCONNECTED></span>
+      <TMPL_IF BRIDGE_ERROR>
+        <span class="ax-err"><TMPL_VAR BRIDGE_ERROR ESCAPE=HTML></span>
+      </TMPL_IF>
+    </TMPL_IF>
+  </div>
+
+  <div class="ax-row">
+    <span class="ax-label"><TMPL_VAR NAME=STATUS.MINISERVER></span>
+    <TMPL_IF MINISERVER_CONNECTED>
+      <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.CONNECTED></span>
+      <span class="ax-hint">
+        <TMPL_VAR EVENTS_SEEN> <TMPL_VAR NAME=STATUS.EVENTS></span>
+    <TMPL_ELSE>
+      <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.DISCONNECTED></span>
+      <TMPL_IF MINISERVER_ERROR>
+        <span class="ax-err"><TMPL_VAR MINISERVER_ERROR ESCAPE=HTML></span>
+      </TMPL_IF>
+    </TMPL_IF>
+  </div>
+
+  <TMPL_IF LAST_DIRECTIVE_AT>
+    <div class="ax-row">
+      <span class="ax-label"><TMPL_VAR NAME=STATUS.LAST_DIRECTIVE></span>
+      <span class="ax-value"><TMPL_VAR LAST_DIRECTIVE_AT ESCAPE=HTML></span>
+    </div>
+  </TMPL_IF>
+
+  <div class="ax-row">
+    <span class="ax-label"><TMPL_VAR NAME=STATUS.PLUGIN_ID></span>
+    <TMPL_IF USER_ID>
+      <span class="ax-value"><TMPL_VAR USER_ID ESCAPE=HTML></span>
+    <TMPL_ELSE>
+      <span class="ax-hint"><TMPL_VAR NAME=STATUS.NO_IDENTITY></span>
+    </TMPL_IF>
+  </div>
+
+  <div class="ax-buttons">
+    <!-- Clean GET that drops any prior action= but keeps the Setup tab
+         active. Without `?page=status` the CGI's default would land us
+         on the Devices tab. (The slug is still `status` internally — the
+         user-facing label is "Setup".) -->
+    <a href="index.cgi?page=status" class="ax-btn"><TMPL_VAR NAME=STATUS.REFRESH></a>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Pair / link to Alexa                                         -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=PAIR.SECTION></h2>
+  <p><TMPL_VAR NAME=PAIR.INSTRUCTIONS></p>
+
+  <TMPL_IF HAS_PAIR_CODE>
+    <div class="ax-pair-code" id="pair-code"><TMPL_VAR PAIR_CODE ESCAPE=HTML></div>
+    <div class="ax-buttons">
+      <button type="button" class="ax-btn ax-btn-primary" id="copy-btn"
+              onclick="copyPairCode()"><TMPL_VAR NAME=PAIR.COPY></button>
+      <form method="POST" style="display:inline">
+        <input type="hidden" name="page" value="status">
+        <input type="hidden" name="action" value="pair">
+        <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+        <button type="submit" class="ax-btn"><TMPL_VAR NAME=PAIR.NEW_CODE></button>
+      </form>
+    </div>
+    <div class="ax-hint" id="pair-expiry"></div>
+    <script>
+      function copyPairCode() {
+        const code = document.getElementById('pair-code').innerText.trim();
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(code).then(function() {
+            const b = document.getElementById('copy-btn');
+            const orig = b.innerText;
+            b.innerText = '<TMPL_VAR NAME=PAIR.COPIED ESCAPE=JS>';
+            setTimeout(function() { b.innerText = orig; }, 1500);
+          });
+        }
+      }
+      (function countdown() {
+        var secs = parseInt('<TMPL_VAR PAIR_EXPIRES_IN ESCAPE=JS>', 10) || 0;
+        var el = document.getElementById('pair-expiry');
+        function tick() {
+          if (secs <= 0) { el.innerText = '<TMPL_VAR NAME=PAIR.EXPIRED ESCAPE=JS>'; return; }
+          var m = Math.floor(secs / 60), s = secs % 60;
+          el.innerText = '<TMPL_VAR NAME=PAIR.EXPIRES_IN ESCAPE=JS> ' +
+                         m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+          secs--;
+          setTimeout(tick, 1000);
+        }
+        tick();
+      })();
+    </script>
+  <TMPL_ELSE>
+    <form method="POST">
+      <input type="hidden" name="page" value="status">
+      <input type="hidden" name="action" value="pair">
+      <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+      <button type="submit" class="ax-btn ax-btn-primary"
+              <TMPL_UNLESS DAEMON_RUNNING>disabled title="<TMPL_VAR NAME=DAEMON.NOT_LISTENING ESCAPE=HTML>"</TMPL_UNLESS>>
+        <TMPL_VAR NAME=PAIR.SHOW_BTN>
+      </button>
+    </form>
+  </TMPL_IF>
+</div>
+
+<!-- ============================================================ -->
+<!-- Active pairings                                              -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=PAIRINGS.SECTION></h2>
+  <TMPL_IF HAS_PAIRINGS>
+    <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
+      <thead>
+        <tr style="text-align:left; border-bottom: 1px solid #ddd;">
+          <th style="padding: 0.35rem 0.5rem;"><TMPL_VAR NAME=PAIRINGS.NAME></th>
+          <th style="padding: 0.35rem 0.5rem;"><TMPL_VAR NAME=PAIRINGS.FIRST_SEEN></th>
+          <th style="padding: 0.35rem 0.5rem;"><TMPL_VAR NAME=PAIRINGS.LAST_SEEN></th>
+          <th style="padding: 0.35rem 0.5rem; text-align:right;"><TMPL_VAR NAME=PAIRINGS.COUNT></th>
+        </tr>
+      </thead>
+      <tbody>
+        <TMPL_LOOP NAME=PAIRINGS>
+          <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 0.35rem 0.5rem;">
+              <TMPL_IF NAME=NAME><TMPL_VAR NAME=NAME ESCAPE=HTML><TMPL_ELSE><span class="ax-hint"><TMPL_VAR NAME=PAIRINGS.UNNAMED></span></TMPL_IF>
+              <div class="ax-hint" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem;">
+                <TMPL_VAR NAME=ID ESCAPE=HTML>
+              </div>
+            </td>
+            <td style="padding: 0.35rem 0.5rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;">
+              <TMPL_VAR NAME=FIRST_SEEN ESCAPE=HTML>
+            </td>
+            <td style="padding: 0.35rem 0.5rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;">
+              <TMPL_VAR NAME=LAST_SEEN ESCAPE=HTML>
+              <TMPL_IF NAME=LAST_DIRECTIVE>
+                <div class="ax-hint"><TMPL_VAR NAME=LAST_DIRECTIVE ESCAPE=HTML></div>
+              </TMPL_IF>
+            </td>
+            <td style="padding: 0.35rem 0.5rem; text-align:right;"><TMPL_VAR NAME=COUNT></td>
+          </tr>
+        </TMPL_LOOP>
+      </tbody>
+    </table>
+    <div class="ax-hint" style="margin-top: 0.5rem;"><TMPL_VAR NAME=PAIRINGS.HINT></div>
+  <TMPL_ELSE>
+    <p class="ax-hint"><TMPL_VAR NAME=PAIRINGS.EMPTY></p>
+  </TMPL_IF>
+</div>
+
+<!-- ============================================================ -->
+<!-- Settings                                                     -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=SETTINGS.SECTION></h2>
+  <p><TMPL_VAR NAME=SETTINGS.INSTRUCTIONS></p>
+  <form method="POST" id="settings-form">
+    <input type="hidden" name="page" value="status">
+    <input type="hidden" name="action" value="save_settings">
+    <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+
+    <div class="ax-row">
+      <label class="ax-label" for="set-bridge-url"><TMPL_VAR NAME=SETTINGS.BRIDGE_URL></label>
+      <input id="set-bridge-url" type="url" name="bridge_url"
+             value="<TMPL_VAR BRIDGE_URL ESCAPE=HTML>"
+             required
+             style="flex:1; min-width: 18rem; padding: 0.35rem 0.5rem;
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
+             placeholder="https://bridge.example.com">
+    </div>
+
+    <div class="ax-row">
+      <label class="ax-label" for="set-port"><TMPL_VAR NAME=SETTINGS.LOCAL_PORT></label>
+      <input id="set-port" type="number" name="local_http_port"
+             value="<TMPL_VAR LOCAL_HTTP_PORT ESCAPE=HTML>"
+             min="1024" max="65535" required
+             style="width: 7rem; padding: 0.35rem 0.5rem;">
+    </div>
+
+    <div class="ax-buttons">
+      <button type="submit" class="ax-btn ax-btn-primary"><TMPL_VAR NAME=SETTINGS.SAVE_BTN></button>
+    </div>
+  </form>
+</div>
+
+<!-- ============================================================ -->
+<!-- Daemon control                                               -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=CONTROL.SECTION></h2>
+  <div class="ax-buttons">
+    <form method="POST" style="display:inline">
+      <input type="hidden" name="page" value="status">
+      <input type="hidden" name="action" value="start">
+      <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+      <button type="submit" class="ax-btn ax-btn-primary"
+              <TMPL_IF DAEMON_RUNNING>disabled</TMPL_IF>>
+        <TMPL_VAR NAME=CONTROL.START>
+      </button>
+    </form>
+    <form method="POST" style="display:inline">
+      <input type="hidden" name="page" value="status">
+      <input type="hidden" name="action" value="stop">
+      <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+      <button type="submit" class="ax-btn"
+              <TMPL_UNLESS DAEMON_RUNNING>disabled</TMPL_UNLESS>>
+        <TMPL_VAR NAME=CONTROL.STOP>
+      </button>
+    </form>
+    <form method="POST" style="display:inline">
+      <input type="hidden" name="page" value="status">
+      <input type="hidden" name="action" value="restart">
+      <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+      <button type="submit" class="ax-btn"
+              <TMPL_UNLESS DAEMON_RUNNING>disabled</TMPL_UNLESS>>
+        <TMPL_VAR NAME=CONTROL.RESTART>
+      </button>
+    </form>
+  </div>
+  <div class="ax-hint"><TMPL_VAR NAME=CONTROL.AUTOSTART_HINT></div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Danger zone                                                  -->
+<!-- ============================================================ -->
+<div class="ax-card" style="border-color: #e0a0a0;">
+  <h2 style="color:#882020;"><TMPL_VAR NAME=DANGER.SECTION></h2>
+  <p><TMPL_VAR NAME=DANGER.EXPLAIN></p>
+  <form method="POST"
+        onsubmit="return confirm('<TMPL_VAR NAME=DANGER.CONFIRM ESCAPE=JS>');">
+    <input type="hidden" name="page" value="status">
+    <input type="hidden" name="action" value="kill_pairings">
+    <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+    <button type="submit" class="ax-btn ax-btn-danger"
+            <TMPL_UNLESS DAEMON_RUNNING>disabled title="<TMPL_VAR NAME=DAEMON.NOT_LISTENING ESCAPE=HTML>"</TMPL_UNLESS>>
+      <TMPL_VAR NAME=DANGER.BTN>
+    </button>
+  </form>
+</div>
+

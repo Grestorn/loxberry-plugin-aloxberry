@@ -1,0 +1,43 @@
+# Copy this file to `aws/samconfig.toml` and adjust values to suit your account.
+# `aws/samconfig.toml` is gitignored — it contains your stack name, region,
+# and parameter overrides, none of which should ever be committed.
+#
+# To use:
+#   cp aws/samconfig.toml.example aws/samconfig.toml
+#   sam deploy --config-file samconfig.toml --template-file infrastructure/template.yaml
+#
+# After the very first deploy, just run:
+#   sam deploy
+# from inside the aws/ directory.
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "loxberry-alexa"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+stack_name = "loxberry-alexa"
+region = "eu-west-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+disable_rollback = false
+# Required parameters in parameter_overrides:
+#   Stage                       - "prod" or "dev"; namespaces DDB tables + log groups
+#   AlexaSkillId                - empty on first deploy; set to amzn1.ask.skill.<uuid>
+#                                 once the skill has been created in the Alexa Developer
+#                                 Console, then redeploy to lock the Lambda's invoke
+#                                 permission to that specific skill
+#   BridgeUrl                   - public HTTPS base URL of the dispatch bridge
+#                                 (e.g. https://loxhome-bridge.net). Can be empty on the
+#                                 very first deploy — Lambdas return 503 until set.
+#   BridgeDispatchSecretParam   - optional; defaults to /loxberry-alexa/bridge-dispatch-secret
+parameter_overrides = "Stage=prod AlexaSkillId= BridgeUrl="
+
+[default.sync.parameters]
+watch = true

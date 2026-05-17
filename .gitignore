@@ -1,0 +1,120 @@
+# =============================================================================
+# This repo is PUBLIC. Anything that might contain a secret must be ignored.
+# When in doubt, add it here BEFORE running `git add`.
+# =============================================================================
+
+# ---------- LoxBerry plugin runtime ----------
+# Plugin runtime data — contains user-supplied tokens, signing secrets,
+# Loxone Miniserver passwords, OAuth refresh tokens, etc.
+data/
+log/
+
+# Daemon PID files and bridge-state markers (anywhere in the tree)
+*.pid
+_*_was_running
+
+# ---------- AWS / SAM ----------
+# Environment files — AWS credentials, signing keys, JWT secrets
+.env
+.env.*
+!.env.example
+
+# AWS credentials and config (must never enter the repo)
+.aws/
+aws-credentials
+credentials
+
+# SAM CLI deploy state — contains stack name, region, deploy parameters
+samconfig.toml
+samconfig.yaml
+
+# SAM build output
+.aws-sam/
+
+# Serverless framework state (in case anyone uses it)
+.serverless/
+
+# Lambda layer / package zips
+lambda-package.zip
+lambda-deployment.zip
+
+# ---------- Cryptographic material ----------
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+!*example*.pem
+!*example*.key
+
+# ---------- Build artifacts ----------
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Plugin ZIP archives produced by create-plugin-zip.*
+alexa-aloxberry-*.zip
+*.tar.gz
+
+# Generic backup/temp files
+*.bak
+*.backup
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ---------- IDE / editor / OS ----------
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- Logs ----------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---------- Test / coverage ----------
+coverage/
+.nyc_output/
+.jest-cache/
+
+# ---------- Python (only if AWS shared/ ever uses Python helpers) ----------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Terraform (in case anyone picks TF over SAM later) ----------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+# Note: .terraform.lock.hcl SHOULD be committed — do NOT ignore it.
+
+# ---------- Editor / extension caches ----------
+.history/
+.cache/
+.parcel-cache/
+.turbo/
+
+# ---------- Misc ----------
+# Local LoxBerry test installations (developers sometimes mount or symlink these)
+/opt/loxberry/

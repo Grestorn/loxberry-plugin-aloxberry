@@ -1,0 +1,9 @@
+node_modules
+.env
+*.log
+scratch
+.git
+.gitignore
+README.md
+docker-compose.yml
+Caddyfile

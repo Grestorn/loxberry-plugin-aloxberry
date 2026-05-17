@@ -1,0 +1,1255 @@
+<!--
+  Aloxberry - devices picker page.
+  Two-panel layout (candidates left, exposed right) + filters bar.
+  Catalogue and current devices.json are inlined as JSON below; a small
+  vanilla-JS controller renders + manages the picker entirely client-side.
+
+  Rendering uses createElement + textContent everywhere — no innerHTML for
+  variable content, so user-controlled strings (Loxone control names from
+  the Miniserver, Alexa names the user types) can never become script
+  injection vectors.
+
+  IMPORTANT: do NOT write the literal tag opener inside HTML comments
+  (HTML::Template parses raw text). Reference tag names without the
+  angle brackets if you need to.
+-->
+<style>
+  .ax-card { background: var(--lb-card-bg, #fff); border: 1px solid #ddd;
+             border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0;
+             box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  .ax-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+  .ax-flash { padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
+  .ax-flash.info    { background: #e6f0ff; color: #1f3a6a; border: 1px solid #b6cfff; }
+  .ax-flash.success { background: #d6f5d6; color: #186218; border: 1px solid #8bd48b; }
+  .ax-flash.warn    { background: #fff3cd; color: #856404; border: 1px solid #ffe066; }
+  .ax-flash.error   { background: #fdd;    color: #882020; border: 1px solid #f4a0a0; }
+  .ax-hint { color: #777; font-size: 0.85rem; }
+  /* Compact form controls everywhere on this page. We deliberately bypass
+     jQuery Mobile (data-role="none") so both static and JS-built elements
+     render plain — same look, much less vertical space than jQM defaults. */
+  input, select, button { font: inherit; font-size: 0.85rem; }
+  .ax-btn { padding: 0.25rem 0.65rem; font-size: 0.85rem; border-radius: 5px;
+            border: 1px solid #aaa; background: #f8f8f8; cursor: pointer;
+            text-decoration: none; color: inherit; display: inline-block;
+            line-height: 1.35; }
+  .ax-btn:hover { background: #eee; }
+  .ax-btn-primary { background: #0d7; color: #fff; border-color: #0b6; }
+  .ax-btn-primary:hover { background: #0b6; }
+  .ax-btn-small { padding: 0.1rem 0.45rem; font-size: 0.8rem; }
+  .ax-btn-danger { background: #c33; color: #fff; border-color: #a22; }
+  .ax-btn-danger:hover { background: #a22; }
+  .ax-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+  /* Gatekeeper card (master + vacation gate). Each row is a label-toggle +
+     hint + optional sub-control on the same line; wraps on narrow screens. */
+  .gate-row { padding: 0.4rem 0; border-bottom: 1px solid #f0f0f0;
+              display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem;
+              align-items: center; font-size: 0.88rem; }
+  .gate-row:last-child { border-bottom: none; }
+  .gate-toggle { display: inline-flex; gap: 0.4rem; align-items: center;
+                 cursor: pointer; }
+  .gate-toggle input { width: 1.05rem; height: 1.05rem; }
+  .gate-sub { display: inline-flex; gap: 0.4rem; align-items: center;
+              margin-left: auto; }
+  .gate-sub.disabled { opacity: 0.4; pointer-events: none; }
+  .gate-sub select { padding: 0.2rem 0.4rem; border: 1px solid #aaa;
+                     border-radius: 4px; font-size: 0.85rem; background: #fff; }
+
+  /* Loxone-Katalog refresh + count row. */
+  .cat-actions { display: flex; gap: 0.6rem; align-items: center;
+                 padding-top: 0.5rem; margin-top: 0.3rem;
+                 border-top: 1px solid #f0f0f0; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem;
+             align-items: center; padding: 0.25rem 0; }
+  .filters > * { font-size: 0.85rem; }
+  .filters input[type=text],
+  .filters select { padding: 0.2rem 0.4rem; border: 1px solid #aaa;
+                    border-radius: 4px; font-size: 0.85rem;
+                    background: #fff; }
+  .filters input#search { min-width: 15rem; }
+  .filters label { display: flex; gap: 0.25rem; align-items: center; }
+
+  .picker { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+            align-items: stretch; }
+  @media (max-width: 900px) { .picker { grid-template-columns: 1fr; } }
+
+  /* min/max-height are set + adjusted by JS at load + on resize so the
+     two panels exactly fit the available viewport height, with a sensible
+     minimum if the window is tiny. The 70vh here is a fallback if JS is
+     disabled — better than nothing but the JS version is smarter. */
+  .panel-list { min-height: 300px; max-height: 70vh;
+                overflow-y: auto; padding-right: 0.4rem; }
+
+  .candidate { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem;
+               padding: 0.3rem 0.4rem; border-bottom: 1px solid #eee;
+               align-items: center; }
+  .candidate .name { font-weight: 500; font-size: 0.88rem; }
+  .candidate .meta { color: #777; font-size: 0.75rem; }
+  .candidate.incompatible { opacity: 0.55; }
+  .candidate.exposed     { opacity: 0.5; }
+  .candidate-no-results, .exposed-no-items {
+    padding: 1rem; text-align: center; color: #888;
+  }
+
+  .exposed-card { border: 1px solid #ddd; border-radius: 6px;
+                  padding: 0.4rem 0.6rem; margin-bottom: 0.4rem;
+                  background: #fafafa; }
+  .exposed-card.disabled { opacity: 0.55; }
+  .exposed-card.orphan { border-color: #c33; background: #fdf6f6; }
+  .exposed-card .head { display: flex; justify-content: space-between;
+                         align-items: center; gap: 0.5rem; }
+  .exposed-card .head label { font-weight: 600; display: inline-flex; gap: 0.3rem;
+                              align-items: center; font-size: 0.85rem; }
+  .exposed-card .field { display: grid; grid-template-columns: 7rem 1fr;
+                         gap: 0.4rem; padding: 0.12rem 0;
+                         align-items: center; font-size: 0.85rem; }
+  .exposed-card input[type=text],
+  .exposed-card select { padding: 0.18rem 0.35rem; border: 1px solid #bbb;
+                         border-radius: 4px; font-size: 0.85rem;
+                         background: #fff; }
+  .exposed-card .caps label { display: inline-flex; gap: 0.2rem; align-items: center;
+                              margin-right: 0.6rem; font-size: 0.8rem; }
+  .exposed-card .caps label.disabled { color: #aaa; }
+  /* Vertical-alignment nudge for checkbox rows. Browser-default checkbox
+     baseline sits ~2px higher than text-input/number fields, which is
+     visible in the settings column where checkbox rows and text/number
+     rows are stacked side by side. This targets the LABEL that contains
+     a checkbox (via :has()) so the whole row — box + its text — moves
+     together. Edit the value below to taste. :has() is supported by all
+     current evergreen browsers; an older browser simply ignores the rule
+     and falls back to the (slightly misaligned) default, which is
+     cosmetic-only. Narrow to `.exposed-card .caps label:has(...)` if you
+     want to exclude the card's "Enabled" header toggle. */
+  .exposed-card label:has(input[type="checkbox"]) { position: relative; top: 2px; }
+  .exposed-card .meta { font-size: 0.7rem; color: #777; margin-top: 0.2rem;
+                        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .exposed-card .orphan-warning {
+    background: #fee; color: #882020; padding: 0.4rem 0.6rem; border-radius: 4px;
+    font-size: 0.85rem; margin-bottom: 0.4rem;
+  }
+
+  .save-bar { position: sticky; bottom: 0; background: #fff;
+              border-top: 1px solid #ddd; padding: 0.7rem 1rem; margin-top: 1rem;
+              display: flex; gap: 0.6rem; align-items: center;
+              box-shadow: 0 -2px 6px rgba(0,0,0,0.05); }
+  .dirty-pill { background: #ffe066; color: #856404; padding: 0.1rem 0.55rem;
+                border-radius: 10px; font-size: 0.8rem; font-weight: 600; display: none; }
+  .dirty .dirty-pill { display: inline-block; }
+</style>
+
+<TMPL_IF HAS_FLASH>
+  <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
+</TMPL_IF>
+
+<!-- "Skill not linked" banner — appears whenever pairings.json is empty.
+     Independent of catalogue availability, because linking is more
+     fundamental than picking devices. Empty pairings can mean (a) the
+     Alexa skill has never been linked, (b) the user clicked "Kill all
+     pairings", or (c) the link was wiped externally. In all three cases
+     the next step is the Status page. -->
+<TMPL_UNLESS HAS_PAIRINGS>
+  <div class="ax-card" style="border-color: #e0a02a; background: #fff8e6;">
+    <strong><TMPL_VAR NAME=DEVICES.NO_PAIRINGS_TITLE></strong>
+    <p style="margin: 0.4rem 0 0.6rem;"><TMPL_VAR NAME=DEVICES.NO_PAIRINGS_BODY></p>
+    <a href="?page=status" class="ax-btn ax-btn-primary"><TMPL_VAR NAME=DEVICES.NO_PAIRINGS_GOTO></a>
+  </div>
+</TMPL_UNLESS>
+
+<TMPL_UNLESS CATALOGUE_AVAILABLE>
+  <div class="ax-card">
+    <h2><TMPL_VAR NAME=DEVICES.CATALOGUE_UNAVAILABLE_TITLE></h2>
+    <p><TMPL_VAR NAME=DEVICES.CATALOGUE_UNAVAILABLE_BODY></p>
+    <TMPL_IF CATALOGUE_ERROR>
+      <p class="ax-hint">Daemon: <TMPL_VAR CATALOGUE_ERROR ESCAPE=HTML></p>
+    </TMPL_IF>
+    <div style="margin-top:0.5rem;">
+      <a href="?page=devices&amp;refresh=1" class="ax-btn ax-btn-primary"><TMPL_VAR NAME=DEVICES.REFRESH_BTN></a>
+      <a href="?page=status" class="ax-btn"><TMPL_VAR NAME=NAV.SETUP></a>
+    </div>
+  </div>
+</TMPL_UNLESS>
+
+<TMPL_IF CATALOGUE_AVAILABLE>
+
+<!-- ============================================================ -->
+<!-- Gatekeepers (global on/off + vacation-mode soft gate)        -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=DEVICES.GATEKEEPER_TITLE></h2>
+
+  <!-- Master switch -->
+  <div class="gate-row">
+    <label class="gate-toggle">
+      <input id="gate-master" type="checkbox" data-role="none">
+      <strong><TMPL_VAR NAME=DEVICES.MASTER_LABEL></strong>
+    </label>
+    <div class="ax-hint"><TMPL_VAR NAME=DEVICES.MASTER_HINT></div>
+  </div>
+
+  <!-- Vacation soft-gate -->
+  <div class="gate-row">
+    <label class="gate-toggle">
+      <input id="gate-vacation" type="checkbox" data-role="none">
+      <strong><TMPL_VAR NAME=DEVICES.VACATION_LABEL></strong>
+    </label>
+    <div class="ax-hint"><TMPL_VAR NAME=DEVICES.VACATION_HINT></div>
+    <div id="gate-vacation-mode-wrap" class="gate-sub">
+      <label for="gate-vacation-mode"><TMPL_VAR NAME=DEVICES.VACATION_MODE></label>
+      <select id="gate-vacation-mode" data-role="none"></select>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Loxone-Katalog (filters + refresh + control count)           -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=DEVICES.CATALOGUE_HEADING></h2>
+  <!-- data-role="none" keeps jQM from enhancing these — static and
+       JS-built form controls then render identically (and compact). -->
+  <div class="filters">
+    <input id="search" type="text" placeholder="Search by name, room or type" data-role="none">
+    <select id="filter-room" data-role="none"><option value=""><TMPL_VAR NAME=DEVICES.ALL_ROOMS></option></select>
+    <select id="filter-type" data-role="none"><option value=""><TMPL_VAR NAME=DEVICES.ALL_TYPES></option></select>
+    <select id="filter-cat"  data-role="none"><option value=""><TMPL_VAR NAME=DEVICES.ALL_CATEGORIES></option></select>
+    <label><input id="hide-exposed"      type="checkbox" checked data-role="none"><span><TMPL_VAR NAME=DEVICES.HIDE_EXPOSED></span></label>
+    <label><input id="hide-incompatible" type="checkbox" checked data-role="none"><span><TMPL_VAR NAME=DEVICES.HIDE_INCOMPATIBLE></span></label>
+  </div>
+  <div class="cat-actions">
+    <a href="?page=devices&amp;refresh=1" class="ax-btn"><TMPL_VAR NAME=DEVICES.REFRESH_BTN></a>
+    <span class="ax-hint">
+      <TMPL_VAR CATALOGUE_CTRL_COUNT> <TMPL_VAR NAME=DEVICES.CONTROLS>
+      <TMPL_IF CATALOGUE_STALE>· <TMPL_VAR NAME=DEVICES.STALE></TMPL_IF>
+    </span>
+  </div>
+</div>
+
+<div class="picker">
+  <div class="ax-card">
+    <h2><TMPL_VAR NAME=DEVICES.AVAILABLE></h2>
+    <div id="candidates-list" class="panel-list"></div>
+    <div id="candidates-empty" class="candidate-no-results" style="display:none">
+      <TMPL_VAR NAME=DEVICES.NO_CANDIDATES>
+    </div>
+  </div>
+
+  <div class="ax-card">
+    <h2><TMPL_VAR NAME=DEVICES.EXPOSED> (<span id="exposed-count"><TMPL_VAR DEVICES_COUNT></span>)</h2>
+    <div id="exposed-list" class="panel-list"></div>
+    <div id="exposed-empty" class="exposed-no-items" style="display:none">
+      <TMPL_VAR NAME=DEVICES.NO_EXPOSED>
+    </div>
+  </div>
+</div>
+
+<form id="save-form" method="POST" class="save-bar">
+  <input type="hidden" name="action" value="save_devices">
+  <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+  <input type="hidden" name="page" value="devices">
+  <input type="hidden" name="devices_json" id="devices-json-field">
+  <span class="dirty-pill"><TMPL_VAR NAME=DEVICES.UNSAVED></span>
+  <button type="submit" id="save-btn" class="ax-btn ax-btn-primary" disabled data-role="none"><TMPL_VAR NAME=DEVICES.SAVE></button>
+</form>
+
+<script id="catalogue-data" type="application/json"><TMPL_VAR CATALOGUE_JSON></script>
+<script id="devices-data"   type="application/json"><TMPL_VAR DEVICES_JSON></script>
+
+<script>
+(function () {
+  // ---- state ---------------------------------------------------------------
+  var catalogue = JSON.parse(document.getElementById('catalogue-data').textContent || '{}');
+  var rooms     = catalogue.rooms     || [];
+  var cats      = catalogue.cats      || [];
+  var controls  = catalogue.controls  || [];
+  var devicesData = JSON.parse(document.getElementById('devices-data').textContent || '{}');
+  var devices   = devicesData.devices || [];
+  // Globals (master switch + vacation gate). Defaults are "all open" so a
+  // fresh install isn't muted by accident. vacationGate watches a
+  // user-chosen Loxone control/state (controlUuid) — see initGatekeepers.
+  var globals = devicesData.globals || { enabled: true, vacationGate: { enabled: false, controlUuid: null } };
+  if (!globals.vacationGate) globals.vacationGate = { enabled: false, controlUuid: null };
+  // Migrate the dead legacy field if an old devices.json is loaded.
+  if ('operatingModeIndex' in globals.vacationGate) {
+    if (globals.vacationGate.controlUuid == null) globals.vacationGate.controlUuid = null;
+    delete globals.vacationGate.operatingModeIndex;
+  }
+
+  var i18n = {
+    vacationPick:  '<TMPL_VAR NAME=DEVICES.VACATION_PICK ESCAPE=JS>',
+    vacationNoVs:  '<TMPL_VAR NAME=DEVICES.VACATION_NO_VS ESCAPE=JS>',
+    add:           '<TMPL_VAR NAME=DEVICES.ADD ESCAPE=JS>',
+    remove:        '<TMPL_VAR NAME=DEVICES.REMOVE ESCAPE=JS>',
+    enabled:       '<TMPL_VAR NAME=DEVICES.ENABLED ESCAPE=JS>',
+    name:          '<TMPL_VAR NAME=DEVICES.FRIENDLY_NAME ESCAPE=JS>',
+    category:      '<TMPL_VAR NAME=DEVICES.CATEGORY ESCAPE=JS>',
+    capabilities:  '<TMPL_VAR NAME=DEVICES.CAPABILITIES ESCAPE=JS>',
+    phaseTag:      '<TMPL_VAR NAME=DEVICES.PHASE3 ESCAPE=JS>',
+    orphan:        '<TMPL_VAR NAME=DEVICES.ORPHAN ESCAPE=JS>',
+    incompatible:  '<TMPL_VAR NAME=DEVICES.INCOMPATIBLE ESCAPE=JS>',
+    settings:      '<TMPL_VAR NAME=DEVICES.SETTINGS ESCAPE=JS>',
+    reverseAxis:   '<TMPL_VAR NAME=DEVICES.REVERSE_AXIS ESCAPE=JS>',
+    useOverride:   '<TMPL_VAR NAME=DEVICES.USE_OVERRIDE ESCAPE=JS>',
+    overrideHours: '<TMPL_VAR NAME=DEVICES.OVERRIDE_HOURS ESCAPE=JS>',
+    volumeStep:    '<TMPL_VAR NAME=DEVICES.VOLUME_STEP ESCAPE=JS>',
+    invertPolarity:'<TMPL_VAR NAME=DEVICES.INVERT_POLARITY ESCAPE=JS>',
+    ventilationHours:'<TMPL_VAR NAME=DEVICES.VENTILATION_HOURS ESCAPE=JS>',
+    modeLabelActive:'<TMPL_VAR NAME=DEVICES.MODE_LABEL_ACTIVE ESCAPE=JS>',
+    modeLabelInactive:'<TMPL_VAR NAME=DEVICES.MODE_LABEL_INACTIVE ESCAPE=JS>',
+  };
+
+  // Hover tooltips (native title=""). Keyed text from the language ini so
+  // they localise with the rest of the UI. capTip is keyed by Alexa
+  // capability name; an unknown cap falls back to no tooltip.
+  var tip = {
+    enabled:          '<TMPL_VAR NAME=DEVICES.TIP_ENABLED ESCAPE=JS>',
+    name:             '<TMPL_VAR NAME=DEVICES.TIP_FRIENDLY_NAME ESCAPE=JS>',
+    category:         '<TMPL_VAR NAME=DEVICES.TIP_CATEGORY ESCAPE=JS>',
+    capabilities:     '<TMPL_VAR NAME=DEVICES.TIP_CAPABILITIES ESCAPE=JS>',
+    settings:         '<TMPL_VAR NAME=DEVICES.TIP_SETTINGS ESCAPE=JS>',
+    reverseAxis:      '<TMPL_VAR NAME=DEVICES.TIP_REVERSE_AXIS ESCAPE=JS>',
+    useOverride:      '<TMPL_VAR NAME=DEVICES.TIP_USE_OVERRIDE ESCAPE=JS>',
+    overrideHours:    '<TMPL_VAR NAME=DEVICES.TIP_OVERRIDE_HOURS ESCAPE=JS>',
+    volumeStep:       '<TMPL_VAR NAME=DEVICES.TIP_VOLUME_STEP ESCAPE=JS>',
+    invertPolarity:   '<TMPL_VAR NAME=DEVICES.TIP_INVERT_POLARITY ESCAPE=JS>',
+    ventilationHours: '<TMPL_VAR NAME=DEVICES.TIP_VENTILATION_HOURS ESCAPE=JS>',
+    modeLabelActive:  '<TMPL_VAR NAME=DEVICES.TIP_MODE_LABEL_ACTIVE ESCAPE=JS>',
+    modeLabelInactive:'<TMPL_VAR NAME=DEVICES.TIP_MODE_LABEL_INACTIVE ESCAPE=JS>',
+  };
+  var capTip = {
+    PowerController:           '<TMPL_VAR NAME=DEVICES.TIP_CAP_POWERCONTROLLER ESCAPE=JS>',
+    BrightnessController:      '<TMPL_VAR NAME=DEVICES.TIP_CAP_BRIGHTNESSCONTROLLER ESCAPE=JS>',
+    ColorController:           '<TMPL_VAR NAME=DEVICES.TIP_CAP_COLORCONTROLLER ESCAPE=JS>',
+    ColorTemperatureController:'<TMPL_VAR NAME=DEVICES.TIP_CAP_COLORTEMPERATURECONTROLLER ESCAPE=JS>',
+    ModeController:            '<TMPL_VAR NAME=DEVICES.TIP_CAP_MODECONTROLLER ESCAPE=JS>',
+    RangeController:           '<TMPL_VAR NAME=DEVICES.TIP_CAP_RANGECONTROLLER ESCAPE=JS>',
+    SceneController:           '<TMPL_VAR NAME=DEVICES.TIP_CAP_SCENECONTROLLER ESCAPE=JS>',
+    ThermostatController:      '<TMPL_VAR NAME=DEVICES.TIP_CAP_THERMOSTATCONTROLLER ESCAPE=JS>',
+    TemperatureSensor:         '<TMPL_VAR NAME=DEVICES.TIP_CAP_TEMPERATURESENSOR ESCAPE=JS>',
+    Speaker:                   '<TMPL_VAR NAME=DEVICES.TIP_CAP_SPEAKER ESCAPE=JS>',
+    PlaybackController:        '<TMPL_VAR NAME=DEVICES.TIP_CAP_PLAYBACKCONTROLLER ESCAPE=JS>',
+    PlaybackStateReporter:     '<TMPL_VAR NAME=DEVICES.TIP_CAP_PLAYBACKSTATEREPORTER ESCAPE=JS>',
+    ToggleController:          '<TMPL_VAR NAME=DEVICES.TIP_CAP_TOGGLECONTROLLER ESCAPE=JS>',
+    MotionSensor:              '<TMPL_VAR NAME=DEVICES.TIP_CAP_MOTIONSENSOR ESCAPE=JS>',
+    ContactSensor:             '<TMPL_VAR NAME=DEVICES.TIP_CAP_CONTACTSENSOR ESCAPE=JS>',
+    HumiditySensor:            '<TMPL_VAR NAME=DEVICES.TIP_CAP_HUMIDITYSENSOR ESCAPE=JS>',
+    EndpointHealth:            '<TMPL_VAR NAME=DEVICES.TIP_CAP_ENDPOINTHEALTH ESCAPE=JS>',
+  };
+
+  // Master picker dropdown — full Alexa displayCategory whitelist. Order
+  // matches devices-config.js. The per-control-type dropdown is filtered
+  // down from this by ctrl.defaults.allowedCategories (when present),
+  // so users only see the categories that make sense for their device.
+  var CATEGORIES = ['LIGHT','SWITCH','OUTLET','SMARTPLUG','FAN',
+                    'THERMOSTAT','AIR_CONDITIONER','VENT',
+                    'TEMPERATURE_SENSOR','HUMIDITY_SENSOR','AIR_QUALITY_MONITOR',
+                    'CONTACT_SENSOR','MOTION_SENSOR',
+                    'INTERIOR_BLIND','EXTERIOR_BLIND','GARAGE_DOOR','DOOR',
+                    'SPEAKER','STREAMING_DEVICE','MUSIC_SYSTEM',
+                    'DOORBELL','CAMERA',
+                    'SCENE_TRIGGER','ACTIVITY_TRIGGER','HUB',
+                    'OTHER'];
+
+  // Daemon-side implemented capabilities. The daemon advertises its
+  // authoritative list via /catalogue → `implementedCapabilities`. The
+  // picker uses this to decide which capability checkboxes are toggleable;
+  // anything not in the list renders disabled with a "Phase 3" tag.
+  //
+  // Fallback: if the field is missing (e.g. an older daemon paired with
+  // this UI), all capabilities default to greyed-out — safer than the
+  // opposite (showing toggles for handlers that don't exist would let the
+  // user enable a capability Alexa would then call into a 'unsupported
+  // directive' error).
+  var V1_CAPS = {};
+  (catalogue.implementedCapabilities || []).forEach(function (c) {
+    V1_CAPS[c] = true;
+  });
+
+  // Filter state persists across page reloads (e.g. after "Save changes"
+  // re-POSTs the page) via sessionStorage. Per-tab scope is the right
+  // granularity — a fresh tab gets fresh defaults, but saving while
+  // working in a filtered view keeps the filter applied. Schema-versioned
+  // key so future changes to the filters object don't try to load stale
+  // shapes from a long-running tab.
+  var FILTERS_STORAGE_KEY = 'aloxberry.devices.filters.v1';
+  var filters = (function loadFiltersFromSession() {
+    var defaults = { search: '', room: '', type: '', cat: '',
+                     hideExposed: true, hideIncompatible: true };
+    try {
+      var raw = sessionStorage.getItem(FILTERS_STORAGE_KEY);
+      if (!raw) return defaults;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return defaults;
+      // Merge over defaults so a partial-stored object doesn't leave
+      // undefined fields and surprise renderAll().
+      return Object.assign({}, defaults, parsed);
+    } catch (_e) {
+      return defaults;
+    }
+  })();
+  function persistFilters() {
+    try {
+      sessionStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+    } catch (_e) { /* QuotaExceeded etc — ignore, filtering still works */ }
+  }
+  var dirty = false;
+
+  // ---- helpers -------------------------------------------------------------
+  function $(id) { return document.getElementById(id); }
+
+  // DOM-builder helper. We use createElement + textContent throughout to
+  // ensure user-controlled strings (Loxone names from the Miniserver,
+  // friendly-name + room values typed in the form) can never become script
+  // injection points.
+  //
+  // Form controls (input/select/textarea/button) get `data-role="none"`
+  // automatically so jQuery Mobile (loaded by LoxBerry's lbheader) leaves
+  // them alone — otherwise static HTML controls are jQM-enhanced at load
+  // and dynamically-built ones aren't, producing a visible style mismatch.
+  var NO_JQM = { input: 1, select: 1, textarea: 1, button: 1 };
+  function el(tag, props, children) {
+    var node = document.createElement(tag);
+    if (NO_JQM[tag]) node.setAttribute('data-role', 'none');
+    if (props) Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v == null || v === false) return;
+      if (k === 'className') node.className = v;
+      else if (k === 'text')  node.textContent = v;
+      else if (k === 'value') node.value = v;        // for input/select
+      else if (k === 'checked') node.checked = !!v;
+      else if (k === 'disabled') node.disabled = !!v;
+      else if (k === 'type')  node.type = v;
+      else node.setAttribute(k, v);
+    });
+    if (children) children.forEach(function (c) {
+      if (c == null || c === false) return;
+      if (typeof c === 'string')  node.appendChild(document.createTextNode(c));
+      else node.appendChild(c);
+    });
+    return node;
+  }
+
+  // Diacritics + case insensitive substring match. "kuche" matches "Küche".
+  function normalize(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
+  function findControl(uuid) {
+    for (var i = 0; i < controls.length; i++) {
+      if (controls[i].uuid === uuid) return controls[i];
+    }
+    return null;
+  }
+  function findDevice(uuid) {
+    for (var i = 0; i < devices.length; i++) {
+      if (devices[i].uuid === uuid) return devices[i];
+    }
+    return null;
+  }
+
+  function setDirty(v) {
+    dirty = v;
+    document.body.classList.toggle('dirty', v);
+    $('save-btn').disabled = !v;
+    // beforeunload covers tab-close / browser-refresh, but NOT in-iframe
+    // link navigation (LoxBerry renders plugin pages in an iframe; the
+    // browser only fires beforeunload on the *top* window's navigation).
+    // The click interceptor below handles the in-iframe case.
+    if (v) {
+      window.onbeforeunload = function (e) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      };
+    } else {
+      window.onbeforeunload = null;
+    }
+  }
+
+  // Click interceptor: catch any link click on this page while dirty and
+  // ask the user to confirm. This is the version that actually fires
+  // inside LoxBerry's iframe — onbeforeunload alone is silently swallowed
+  // by Chrome/Firefox for inner frames.
+  //
+  // Uses capture phase so we intercept BEFORE the link's default action.
+  document.addEventListener('click', function (e) {
+    if (!dirty) return;
+    // Walk up to find <a href> ancestor.
+    var t = e.target;
+    while (t && t !== document) {
+      if (t.tagName === 'A' && t.getAttribute('href')) break;
+      t = t.parentNode;
+    }
+    if (!t || t === document) return;
+    var href = t.getAttribute('href');
+    // Allow non-navigating anchors (e.g. anchor-only "#foo").
+    if (href.charAt(0) === '#') return;
+    var ok = window.confirm(
+      'You have unsaved changes on the Devices page.\n\nDiscard them and leave?'
+    );
+    if (!ok) {
+      e.preventDefault();
+      e.stopPropagation();
+    } else {
+      // User confirmed — suppress the secondary onbeforeunload prompt.
+      window.onbeforeunload = null;
+    }
+  }, true);
+
+  // ---- populate filter dropdowns -------------------------------------------
+  (function populateDropdowns() {
+    var roomEl = $('filter-room');
+    rooms.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
+         .forEach(function (r) {
+            roomEl.appendChild(el('option', { value: r.uuid, text: r.name || '(unnamed)' }));
+         });
+    var catEl = $('filter-cat');
+    cats.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
+        .forEach(function (c) {
+           catEl.appendChild(el('option', { value: c.uuid, text: c.name || '(unnamed)' }));
+        });
+    var typesSet = {};
+    controls.forEach(function (c) { if (c.type) typesSet[c.type] = true; });
+    var typeEl = $('filter-type');
+    Object.keys(typesSet).sort().forEach(function (t) {
+      typeEl.appendChild(el('option', { value: t, text: t }));
+    });
+  })();
+
+  // Apply persisted filter state to the actual DOM inputs *after*
+  // populateDropdowns() so the room/type/cat <option>s exist when we
+  // set their .value. Stored values that no longer match any option
+  // (e.g. a room was deleted in Loxone Config between save and reload)
+  // silently fall back to "" because <select>.value=missing rejects.
+  (function applyPersistedFilters() {
+    $('search').value = filters.search || '';
+    $('filter-room').value = filters.room || '';
+    $('filter-type').value = filters.type || '';
+    $('filter-cat').value  = filters.cat  || '';
+    $('hide-exposed').checked      = !!filters.hideExposed;
+    $('hide-incompatible').checked = !!filters.hideIncompatible;
+    // If any stored value didn't take (because the option was deleted),
+    // sync the in-memory `filters` object back to what's actually shown.
+    filters.room = $('filter-room').value;
+    filters.type = $('filter-type').value;
+    filters.cat  = $('filter-cat').value;
+  })();
+
+  // ---- render: candidates --------------------------------------------------
+  function renderCandidates() {
+    var exposedSet = {};
+    devices.forEach(function (d) { exposedSet[d.uuid] = true; });
+
+    var list = $('candidates-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+
+    var matches = controls.filter(function (c) {
+      if (filters.hideIncompatible && !c.alexaCompatible) return false;
+      if (filters.hideExposed && exposedSet[c.uuid]) return false;
+      if (filters.room && c.roomUuid !== filters.room) return false;
+      if (filters.type && c.type !== filters.type) return false;
+      if (filters.cat  && c.catUuid  !== filters.cat)  return false;
+      if (filters.search) {
+        var s = normalize(filters.search);
+        var hay = normalize([c.name, c.roomName, c.catName, c.type, c.parentName || ''].join(' '));
+        if (hay.indexOf(s) < 0) return false;
+      }
+      return true;
+    });
+
+    matches.forEach(function (c) {
+      var className = 'candidate' +
+        (c.alexaCompatible ? '' : ' incompatible') +
+        (exposedSet[c.uuid] ? ' exposed' : '');
+
+      var nameDiv = el('div', { className: 'name', text: c.name || '' });
+
+      // Meta line: "Room · Type [· incompatible] [· parent name →]"
+      var metaParts = [];
+      metaParts.push(c.roomName || '—');
+      metaParts.push('·');
+      metaParts.push(c.type || '');
+      if (!c.alexaCompatible) {
+        metaParts.push('·');
+        metaParts.push(i18n.incompatible);
+      }
+      if (c.parentName) {
+        metaParts.push('·');
+        metaParts.push(c.parentName + ' →');
+      }
+      var metaDiv = el('div', { className: 'meta', text: metaParts.join(' ') });
+
+      var leftCol = el('div', null, [nameDiv, metaDiv]);
+
+      var addBtn = el('button', {
+        className: 'ax-btn ax-btn-small ax-btn-primary',
+        type: 'button',
+        'data-add': c.uuid,
+        text: i18n.add,
+        disabled: exposedSet[c.uuid] || false,
+      });
+
+      list.appendChild(el('div', { className: className }, [leftCol, addBtn]));
+    });
+
+    $('candidates-empty').style.display = matches.length === 0 ? 'block' : 'none';
+  }
+
+  // ---- render: exposed devices ---------------------------------------------
+  function renderExposedCard(d) {
+    var ctrl = findControl(d.uuid);
+    var className = 'exposed-card' +
+      (d.enabled ? '' : ' disabled') +
+      (ctrl ? '' : ' orphan');
+
+    // Head: enabled toggle + remove button.
+    var enabledCb = el('input', {
+      type: 'checkbox', checked: !!d.enabled,
+      'data-field': 'enabled', 'data-uuid': d.uuid,
+    });
+    var enabledLbl = el('label', { title: tip.enabled }, [enabledCb, ' ' + i18n.enabled]);
+    var removeBtn = el('button', {
+      className: 'ax-btn ax-btn-small ax-btn-danger',
+      type: 'button',
+      'data-remove': d.uuid,
+      text: i18n.remove,
+    });
+    var head = el('div', { className: 'head' }, [enabledLbl, removeBtn]);
+
+    var children = [head];
+
+    if (!ctrl) {
+      children.push(el('div', { className: 'orphan-warning', text: i18n.orphan }));
+    }
+
+    // Friendly name + Alexa room (text inputs).
+    function textField(label, fieldName, value, titleText) {
+      var input = el('input', {
+        type: 'text', value: value || '',
+        'data-field': fieldName, 'data-uuid': d.uuid,
+        title: titleText || null,
+      });
+      return el('div', { className: 'field' }, [
+        el('label', { text: label, title: titleText || null }),
+        input,
+      ]);
+    }
+    children.push(textField(i18n.name, 'friendlyName', d.friendlyName, tip.name));
+
+    // Category dropdown — filtered to ctrl.defaults.allowedCategories when
+    // the structure provides one. This narrows the per-device category
+    // options to only what makes sense for that Loxone control type (e.g.
+    // Pushbutton's dropdown shows SCENE_TRIGGER/ACTIVITY_TRIGGER/DOORBELL/
+    // OTHER, not all 25 master options). If the device's saved category
+    // isn't in the allowlist (e.g. user hand-edited devices.json), we
+    // still include it as an option so it's visible and editable.
+    var allowedCats = (ctrl && ctrl.defaults && Array.isArray(ctrl.defaults.allowedCategories))
+      ? ctrl.defaults.allowedCategories.slice()
+      : CATEGORIES.slice();
+    if (d.displayCategory && allowedCats.indexOf(d.displayCategory) < 0) {
+      allowedCats.push(d.displayCategory);
+    }
+    var catSelect = el('select', { 'data-field': 'displayCategory', 'data-uuid': d.uuid, title: tip.category });
+    allowedCats.forEach(function (cat) {
+      var opt = el('option', { value: cat, text: cat });
+      if (cat === d.displayCategory) opt.selected = true;
+      catSelect.appendChild(opt);
+    });
+    children.push(el('div', { className: 'field' }, [
+      el('label', { text: i18n.category, title: tip.category }),
+      catSelect,
+    ]));
+
+    // Capabilities checkboxes (union of current + defaults + optional from
+    // control type). `optionalCapabilities` are alternative roles a control
+    // type can play (e.g., an InfoOnlyDigital can act as MotionSensor OR
+    // ContactSensor); they show up unchecked so the user can opt in without
+    // having to know the capability name. Same per-row UI handling — the
+    // daemon-served IMPLEMENTED_CAPABILITIES list still gates whether each
+    // checkbox is interactive.
+    var capPool = {};
+    d.capabilities.forEach(function (c) { capPool[c] = true; });
+    if (ctrl && ctrl.defaults && ctrl.defaults.capabilities) {
+      ctrl.defaults.capabilities.forEach(function (c) { capPool[c] = true; });
+    }
+    if (ctrl && ctrl.defaults && ctrl.defaults.optionalCapabilities) {
+      ctrl.defaults.optionalCapabilities.forEach(function (c) { capPool[c] = true; });
+    }
+    var capsWrap = el('div', { className: 'caps' });
+    var capKeys = Object.keys(capPool).sort();
+    if (capKeys.length === 0) {
+      capsWrap.appendChild(el('span', { className: 'ax-hint', text: '—' }));
+    } else {
+      capKeys.forEach(function (cap) {
+        var isV1 = !!V1_CAPS[cap];
+        var checked = d.capabilities.indexOf(cap) >= 0;
+        var cb = el('input', {
+          type: 'checkbox', checked: checked, disabled: !isV1,
+          'data-cap': cap, 'data-uuid': d.uuid,
+        });
+        var label = el('label', {
+          className: isV1 ? '' : 'disabled',
+          title: capTip[cap] || null,
+        }, [cb, ' ' + cap]);
+        if (!isV1) {
+          var phaseSpan = el('em', { text: ' ' + i18n.phaseTag });
+          label.appendChild(phaseSpan);
+        }
+        capsWrap.appendChild(label);
+      });
+    }
+    children.push(el('div', { className: 'field' }, [
+      el('label', { text: i18n.capabilities, title: tip.capabilities }),
+      capsWrap,
+    ]));
+
+    // Per-device settings row. Collects all the capability-specific
+    // toggles + numbers that aren't part of Alexa's standard config (the
+    // axis inversion for RangeController, the override mode for
+    // ThermostatController, etc.) into one row visually consistent with
+    // the capability checkboxes above. Reuses the .caps wrapper so each
+    // setting inherits the same smaller font + inline-flex layout.
+    var settingChildren = [];
+    // Helper: read a boolean field from the device row, falling back to
+    // the control type's default when the row is missing it. Belt-and-
+    // suspenders against legacy devices.json rows or partial saves —
+    // addDevice() seeds these correctly for new devices, but storage may
+    // pre-date a particular flag's introduction.
+    function boolWithTypeDefault(field) {
+      if (typeof d[field] === 'boolean') return d[field];
+      return !!(ctrl && ctrl.defaults && ctrl.defaults[field]);
+    }
+    // "Does this control TYPE ever support `cap`?" — drives whether a
+    // settings field is RENDERED. capPool unions defaults.capabilities +
+    // optionalCapabilities + the current selection, so it's stable for
+    // the life of the card (toggling a checkbox doesn't change it).
+    function typeCanHave(cap) { return !!capPool[cap]; }
+    // "Is `cap` currently active on this device?" — drives whether the
+    // field is ENABLED. Recomputed in-place by refreshSettingsDisabled()
+    // on capability toggle, so the list never re-renders (no scroll jump).
+    function capActive(cap) { return d.capabilities.indexOf(cap) >= 0; }
+    // Wrap an input in its label, applying the greyed-out `.disabled`
+    // class when the gating capability isn't active. `reqCap` is a
+    // comma-joined OR-list stamped onto the input as data-setting-cap so
+    // the in-place refresh can recompute without a re-render.
+    function settingRow(parts, reqCap, enabled, tipText) {
+      // parts[ N ] may include the gated input(s); stamp each input.
+      parts.forEach(function (p) {
+        if (p && p.setAttribute && p.tagName === 'INPUT') {
+          p.setAttribute('data-setting-cap', reqCap);
+          p.disabled = !enabled;
+          if (tipText) p.setAttribute('title', tipText);
+        }
+      });
+      return el('label', { className: enabled ? '' : 'disabled', title: tipText || null }, parts);
+    }
+
+    // Reverse-axis (RangeController). Rendered for any type that can have
+    // RangeController; disabled until that capability is active.
+    if (typeCanHave('RangeController')) {
+      var axisOn = capActive('RangeController');
+      var rangeInv = el('input', {
+        type: 'checkbox', checked: boolWithTypeDefault('rangeAxisInverted'),
+        'data-axis': '1', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow([rangeInv, ' ' + i18n.reverseAxis],
+        'RangeController', axisOn, tip.reverseAxis));
+    }
+    // Thermostat override checkbox + duration.
+    if (typeCanHave('ThermostatController')) {
+      var thermoOn = capActive('ThermostatController');
+      var ovrCb = el('input', {
+        type: 'checkbox', checked: boolWithTypeDefault('thermostatUseOverride'),
+        'data-thermo': 'use', 'data-uuid': d.uuid,
+      });
+      var ovrHours = el('input', {
+        type: 'number', min: '1', max: '168', step: '1',
+        value: String(d.thermostatOverrideHours || 12),
+        style: 'width: 4em;',
+        'data-thermo': 'hours', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow([ovrCb, ' ' + i18n.useOverride],
+        'ThermostatController', thermoOn, tip.useOverride));
+      settingChildren.push(settingRow([' ' + i18n.overrideHours + ' ', ovrHours],
+        'ThermostatController', thermoOn, tip.overrideHours));
+    }
+    // Speaker volume-step.
+    if (typeCanHave('Speaker')) {
+      var spkOn = capActive('Speaker');
+      var volStep = el('input', {
+        type: 'number', min: '1', max: '50', step: '1',
+        value: String(d.audioVolumeStep || 5),
+        style: 'width: 4em;',
+        'data-volstep': '1', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow([' ' + i18n.volumeStep + ' ', volStep],
+        'Speaker', spkOn, tip.volumeStep));
+    }
+    // Sensor polarity — gated by MotionSensor OR ContactSensor (either
+    // detection capability uses the same wire reading).
+    if (typeCanHave('MotionSensor') || typeCanHave('ContactSensor')) {
+      var polOn = capActive('MotionSensor') || capActive('ContactSensor');
+      var polInv = el('input', {
+        type: 'checkbox', checked: boolWithTypeDefault('sensorPolarityInverted'),
+        'data-polarity': '1', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow([polInv, ' ' + i18n.invertPolarity],
+        'MotionSensor,ContactSensor', polOn, tip.invertPolarity));
+    }
+    // Binary-sensor ModeController custom labels — gated by ModeController.
+    // Rendered for the binary-sensor types (the only ones that list
+    // ModeController in optionalCapabilities); disabled until checked.
+    if (typeCanHave('ModeController') && ctrl && (
+      ctrl.type === 'InfoOnlyDigital' ||
+      ctrl.type === 'PresenceDetector' ||
+      ctrl.type === 'WindowMonitor'
+    )) {
+      var modeOn = capActive('ModeController');
+      var labelActive = el('input', {
+        type: 'text', value: d.modeLabelActive || '',
+        placeholder: 'Active',
+        maxLength: 64, style: 'width: 8em;',
+        'data-modelabel': 'active', 'data-uuid': d.uuid,
+      });
+      var labelInactive = el('input', {
+        type: 'text', value: d.modeLabelInactive || '',
+        placeholder: 'Inactive',
+        maxLength: 64, style: 'width: 8em;',
+        'data-modelabel': 'inactive', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow([' ' + i18n.modeLabelActive + ' ', labelActive],
+        'ModeController', modeOn, tip.modeLabelActive));
+      settingChildren.push(settingRow([' ' + i18n.modeLabelInactive + ' ', labelInactive],
+        'ModeController', modeOn, tip.modeLabelInactive));
+    }
+    // Ventilation manual-timer duration — shown only when the row is for a
+    // Ventilation control. Independent of capability checkboxes since the
+    // value applies regardless of which Ventilation cap is enabled.
+    var isVentilation = ctrl && ctrl.type === 'Ventilation';
+    if (isVentilation) {
+      var ventHours = el('input', {
+        type: 'number', min: '1', max: '168', step: '1',
+        value: String(d.ventilationOverrideHours
+                      || (ctrl.defaults && ctrl.defaults.ventilationOverrideHours)
+                      || 24),
+        style: 'width: 4em;',
+        'data-venthours': '1', 'data-uuid': d.uuid,
+        title: tip.ventilationHours,
+      });
+      settingChildren.push(el('label', { title: tip.ventilationHours }, [
+        ' ' + i18n.ventilationHours + ' ',
+        ventHours,
+      ]));
+    }
+    if (settingChildren.length > 0) {
+      children.push(el('div', { className: 'field' }, [
+        el('label', { text: i18n.settings, title: tip.settings }),
+        el('div', { className: 'caps' }, settingChildren),
+      ]));
+    }
+
+    var metaText = ctrl
+      ? (ctrl.type + ' · ' + (ctrl.roomName || '—') + ' · ' + d.uuid)
+      : d.uuid;
+    children.push(el('div', { className: 'meta', text: metaText }));
+
+    return el('div', { className: className, 'data-card-uuid': d.uuid }, children);
+  }
+
+  function renderExposed() {
+    var list = $('exposed-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    // Apply the same filters as the candidates list (search, room, type,
+    // category, hideIncompatible) — but NOT `hideExposed` (which only
+    // makes sense on the left side; everything here is already exposed).
+    // Filtering joins on the matching Loxone control for room/type/cat
+    // metadata, since the device row doesn't carry that itself.
+    var matches = devices.filter(function (d) {
+      var ctrl = findControl(d.uuid); // null if the control was removed in Loxone
+      if (filters.hideIncompatible && ctrl && !ctrl.alexaCompatible) return false;
+      if (filters.room && (!ctrl || ctrl.roomUuid !== filters.room)) return false;
+      if (filters.type && (!ctrl || ctrl.type    !== filters.type)) return false;
+      if (filters.cat  && (!ctrl || ctrl.catUuid !== filters.cat))  return false;
+      if (filters.search) {
+        var s = normalize(filters.search);
+        // Search against the user-typed friendly name AND the Loxone
+        // metadata (so "kuche" matches both an explicitly-named device
+        // and a Loxone "Küche"-located one).
+        var hay = normalize([
+          d.friendlyName,
+          ctrl ? ctrl.name     : '',
+          ctrl ? ctrl.roomName : '',
+          ctrl ? ctrl.catName  : '',
+          ctrl ? ctrl.type     : '',
+          ctrl ? (ctrl.parentName || '') : '',
+        ].join(' '));
+        if (hay.indexOf(s) < 0) return false;
+      }
+      return true;
+    });
+    matches.forEach(function (d) { list.appendChild(renderExposedCard(d)); });
+    // The counter shows visible-vs-total so a user with active filters
+    // can tell at a glance whether the filter is hiding their device.
+    $('exposed-count').textContent =
+      (matches.length === devices.length)
+        ? String(devices.length)
+        : (matches.length + ' / ' + devices.length);
+    $('exposed-empty').style.display = devices.length === 0 ? 'block' : 'none';
+  }
+
+  function renderAll() {
+    renderCandidates();
+    renderExposed();
+  }
+
+  // ---- add / remove / update ----------------------------------------------
+  function addDevice(uuid) {
+    var ctrl = findControl(uuid);
+    if (!ctrl) return;
+    if (findDevice(uuid)) return;
+    var defaultCat  = (ctrl.defaults && ctrl.defaults.displayCategory) || 'OTHER';
+    var defaultCaps = ctrl.defaults ? ctrl.defaults.capabilities.slice() : [];
+    // Initial check state: only v1-implemented caps; users can toggle later.
+    defaultCaps = defaultCaps.filter(function (c) { return V1_CAPS[c]; });
+    var now = new Date().toISOString();
+    // Default friendly name = "<room> <control name>" — gives the user a
+    // useful starting point (the same string they'd otherwise type
+    // themselves) and triggers Alexa's "Hunches" room-grouping suggestion
+    // when the discovered set shares a prefix.
+    var defaultName = (ctrl.roomName ? ctrl.roomName + ' ' : '') + (ctrl.name || '');
+    devices.push({
+      uuid: uuid,
+      enabled: true,
+      friendlyName: defaultName,
+      displayCategory: defaultCat,
+      capabilities: defaultCaps,
+      // Seed the RangeController axis flag from the per-type default in
+      // structure.js — true for Jalousie, false for Window/Gate/Slider.
+      // User can flip it from the device's "Reverse direction" checkbox.
+      rangeAxisInverted: !!(ctrl.defaults && ctrl.defaults.rangeAxisInverted),
+      // Seed thermostat override settings the same way; the picker form
+      // pre-fills these inputs even if the device doesn't have
+      // ThermostatController capability (the daemon ignores them then).
+      thermostatUseOverride: !!(ctrl.defaults && ctrl.defaults.thermostatUseOverride),
+      thermostatOverrideHours: (ctrl.defaults && ctrl.defaults.thermostatOverrideHours) || 12,
+      // Volume step (Speaker AdjustVolume) — same idempotent-pre-seed pattern.
+      audioVolumeStep: (ctrl.defaults && ctrl.defaults.audioVolumeStep) || 5,
+      // Sensor polarity (Motion/Contact). Seed from the type default —
+      // typically true for sensor types so the user's first save matches
+      // the common Loxone reed-switch wiring. Non-sensor types seed false
+      // (harmless; the daemon ignores the field for non-sensor controls).
+      sensorPolarityInverted: !!(ctrl.defaults && ctrl.defaults.sensorPolarityInverted),
+      // Ventilation manual-timer duration. Type default is 24h for
+      // Ventilation, 24h for everything else (harmless — daemon ignores
+      // for non-Ventilation controls).
+      ventilationOverrideHours: (ctrl.defaults && ctrl.defaults.ventilationOverrideHours) || 24,
+      // Custom labels for the binary-sensor ModeController option.
+      // Start blank — Discovery falls back to "Active"/"Inactive" until
+      // the user types something specific.
+      modeLabelActive:   '',
+      modeLabelInactive: '',
+      msNo: 1,
+      addedAt: now,
+      updatedAt: now,
+    });
+    setDirty(true);
+    renderAll();
+  }
+
+  function removeDevice(uuid) {
+    devices = devices.filter(function (d) { return d.uuid !== uuid; });
+    setDirty(true);
+    renderAll();
+  }
+
+  function updateField(uuid, field, value) {
+    var d = findDevice(uuid);
+    if (!d) return;
+    d[field] = value;
+    d.updatedAt = new Date().toISOString();
+    setDirty(true);
+    if (field === 'enabled') {
+      // Re-render exposed only (the disabled class flips visually).
+      renderExposed();
+    }
+  }
+
+  // Recompute the disabled state of every settings field in one card,
+  // in place — NO list re-render (which would reset the scroll offset).
+  // Each gated input carries data-setting-cap (a comma-joined OR-list of
+  // capabilities); the field is enabled iff any of them is currently
+  // active on the device. The wrapping <label> gets the `.disabled`
+  // class so it greys out to match.
+  function refreshSettingsDisabled(uuid) {
+    var d = findDevice(uuid);
+    if (!d) return;
+    var card = document.querySelector('[data-card-uuid="' + uuid + '"]');
+    if (!card) return;
+    var inputs = card.querySelectorAll('[data-setting-cap]');
+    for (var i = 0; i < inputs.length; i++) {
+      var inp = inputs[i];
+      var req = (inp.getAttribute('data-setting-cap') || '').split(',');
+      var enabled = false;
+      for (var j = 0; j < req.length; j++) {
+        if (d.capabilities.indexOf(req[j]) >= 0) { enabled = true; break; }
+      }
+      inp.disabled = !enabled;
+      // el() wraps the gated input directly inside its <label>.
+      var lbl = inp.parentNode;
+      if (lbl && lbl.classList) {
+        lbl.classList.toggle('disabled', !enabled);
+      }
+    }
+  }
+
+  function toggleCapability(uuid, cap, on) {
+    var d = findDevice(uuid);
+    if (!d) return;
+    var idx = d.capabilities.indexOf(cap);
+    if (on && idx < 0) d.capabilities.push(cap);
+    if (!on && idx >= 0) d.capabilities.splice(idx, 1);
+    // Mutual exclusivity: some control types expose several capabilities
+    // that are alternative renderings of ONE underlying Loxone value
+    // (e.g. an InfoOnlyDigital can be a ContactSensor OR MotionSensor OR
+    // a custom-labelled ModeController — never several at once). Enabling
+    // one clears the rest of its exclusive group, both in the data model
+    // and the sibling checkboxes' DOM state. Additive capability sets
+    // (AudioZone's Power+Speaker+Playback, Ventilation's optional
+    // Temp/Humidity) have no exclusiveCapabilities, so this is a no-op
+    // for them.
+    if (on) {
+      var ctrl = findControl(uuid);
+      var grp = ctrl && ctrl.defaults && ctrl.defaults.exclusiveCapabilities;
+      if (grp && grp.indexOf(cap) >= 0) {
+        grp.forEach(function (other) {
+          if (other === cap) return;
+          var oi = d.capabilities.indexOf(other);
+          if (oi >= 0) d.capabilities.splice(oi, 1);
+          var box = document.querySelector(
+            'input[data-cap="' + other + '"][data-uuid="' + uuid + '"]');
+          if (box) box.checked = false;
+        });
+      }
+    }
+    d.updatedAt = new Date().toISOString();
+    setDirty(true);
+    // In-place refresh — preserves scroll position (the user's complaint
+    // about the old renderExposed() approach).
+    refreshSettingsDisabled(uuid);
+  }
+
+  // ---- event wiring --------------------------------------------------------
+  // Delegated handlers — one listener per type, dispatch based on data-* attrs.
+  document.body.addEventListener('click', function (e) {
+    var t = e.target;
+    var addUuid = t.getAttribute && t.getAttribute('data-add');
+    if (addUuid) { addDevice(addUuid); return; }
+    var rmUuid = t.getAttribute && t.getAttribute('data-remove');
+    if (rmUuid) { removeDevice(rmUuid); return; }
+  });
+  document.body.addEventListener('input', function (e) {
+    var t = e.target;
+    var uuid = t.getAttribute && t.getAttribute('data-uuid');
+    var field = t.getAttribute && t.getAttribute('data-field');
+    if (uuid && field && t.type === 'text') {
+      updateField(uuid, field, t.value);
+    }
+    // Binary-sensor ModeController custom labels — live update so the
+    // user sees the dirty flag flip as they type. data-modelabel is
+    // either "active" or "inactive".
+    var ml = t.getAttribute && t.getAttribute('data-modelabel');
+    if (uuid && ml) {
+      var key = ml === 'active' ? 'modeLabelActive' : 'modeLabelInactive';
+      updateField(uuid, key, String(t.value || '').slice(0, 64));
+    }
+  });
+  document.body.addEventListener('change', function (e) {
+    var t = e.target;
+    var uuid = t.getAttribute && t.getAttribute('data-uuid');
+    var field = t.getAttribute && t.getAttribute('data-field');
+    var cap = t.getAttribute && t.getAttribute('data-cap');
+    var axis = t.getAttribute && t.getAttribute('data-axis');
+    if (uuid && cap) {
+      toggleCapability(uuid, cap, t.checked);
+      return;
+    }
+    if (uuid && axis) {
+      updateField(uuid, 'rangeAxisInverted', t.checked);
+      return;
+    }
+    var thermo = t.getAttribute && t.getAttribute('data-thermo');
+    if (uuid && thermo === 'use') {
+      updateField(uuid, 'thermostatUseOverride', t.checked);
+      return;
+    }
+    if (uuid && thermo === 'hours') {
+      // The number input fires `change` on blur or Enter. parseInt + clamp
+      // to the daemon's accepted range; an out-of-bounds value gets pinned
+      // and saved that way so the user sees what was actually stored.
+      var n = parseInt(t.value, 10);
+      if (!isFinite(n)) n = 12;
+      if (n < 1)   n = 1;
+      if (n > 168) n = 168;
+      t.value = String(n);          // reflect clamp back into the input
+      updateField(uuid, 'thermostatOverrideHours', n);
+      return;
+    }
+    if (uuid && t.getAttribute && t.getAttribute('data-volstep')) {
+      var v = parseInt(t.value, 10);
+      if (!isFinite(v)) v = 5;
+      if (v < 1)  v = 1;
+      if (v > 50) v = 50;
+      t.value = String(v);
+      updateField(uuid, 'audioVolumeStep', v);
+      return;
+    }
+    if (uuid && t.getAttribute && t.getAttribute('data-polarity')) {
+      updateField(uuid, 'sensorPolarityInverted', t.checked);
+      return;
+    }
+    if (uuid && t.getAttribute && t.getAttribute('data-venthours')) {
+      var vh = parseInt(t.value, 10);
+      if (!isFinite(vh)) vh = 24;
+      if (vh < 1)   vh = 1;
+      if (vh > 168) vh = 168;
+      t.value = String(vh);
+      updateField(uuid, 'ventilationOverrideHours', vh);
+      return;
+    }
+    if (uuid && field) {
+      var v = (t.type === 'checkbox') ? t.checked : t.value;
+      updateField(uuid, field, v);
+    }
+  });
+
+  // Filter inputs — most filters apply to BOTH lists (candidates left,
+  // exposed right) so they call renderAll(). The "hide already exposed"
+  // toggle is the lone exception: it only ever hides items from the
+  // candidates side; everything in the exposed list is already exposed
+  // by definition, so applying it there would empty the panel.
+  $('search').addEventListener('input', function (e) {
+    filters.search = e.target.value; persistFilters(); renderAll();
+  });
+  $('filter-room').addEventListener('change', function (e) {
+    filters.room = e.target.value; persistFilters(); renderAll();
+  });
+  $('filter-type').addEventListener('change', function (e) {
+    filters.type = e.target.value; persistFilters(); renderAll();
+  });
+  $('filter-cat').addEventListener('change', function (e) {
+    filters.cat = e.target.value; persistFilters(); renderAll();
+  });
+  $('hide-exposed').addEventListener('change', function (e) {
+    filters.hideExposed = e.target.checked; persistFilters(); renderCandidates();
+  });
+  $('hide-incompatible').addEventListener('change', function (e) {
+    filters.hideIncompatible = e.target.checked; persistFilters(); renderAll();
+  });
+
+  // ---- gatekeepers ---------------------------------------------------------
+  // Two switches at the top of the page:
+  //   #gate-master           — master on/off (all communication)
+  //   #gate-vacation         — soft gate: only blocks Alexa→Miniserver writes
+  //   #gate-vacation-mode    — which Loxone control/state is the pause trigger
+  //
+  // Master OFF kills the daemon's bridge connection. Vacation ON blocks
+  // writes only while the chosen Loxone control's state is ON. Loxone has
+  // NO API to read a custom Betriebsart, so the user wires it in Loxone
+  // Config: "<pause condition> → this control ON" (e.g. a Virtual Output
+  // or a Merker driven by the Betriebsart). The daemon already receives
+  // that control's state over its WebSocket subscription.
+  function initGatekeepers() {
+    var modeSel = $('gate-vacation-mode');
+
+    // ONLY Loxone "Virtual Status" objects qualify. In LoxAPP3.json a
+    // Virtual Status (Loxone Config "Virtueller Status") is control type
+    // InfoOnlyDigital — the daemon enforces the same restriction. Nothing
+    // else is offered: the user must wire their pause condition into a
+    // dedicated Virtual Status in Loxone Config.
+    var vsList = controls.filter(function (c) { return c.type === 'InfoOnlyDigital'; });
+    if (vsList.length) {
+      modeSel.appendChild(el('option', { value: '', text: '— ' + i18n.vacationPick + ' —' }));
+      vsList.slice()
+        .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); })
+        .forEach(function (c) {
+          modeSel.appendChild(el('option', { value: c.uuid, text: c.name }));
+        });
+      // Select the saved Virtual Status if it still exists; otherwise the
+      // placeholder (never auto-pick — guessing could silently pause Alexa
+      // on the wrong signal).
+      var saved = (globals.vacationGate.controlUuid != null)
+        ? String(globals.vacationGate.controlUuid) : '';
+      modeSel.value = saved;
+      if (modeSel.value !== saved) modeSel.value = '';
+    } else {
+      // No Virtual Status in the catalogue → tell the user to create one.
+      modeSel.appendChild(el('option', { value: '', text: i18n.vacationNoVs }));
+      modeSel.disabled = true;
+    }
+
+    $('gate-master').checked   = !!globals.enabled;
+    $('gate-vacation').checked = !!globals.vacationGate.enabled;
+    syncVacationSubControl();
+  }
+
+  function syncVacationSubControl() {
+    var on = $('gate-vacation').checked;
+    document.getElementById('gate-vacation-mode-wrap').classList.toggle('disabled', !on);
+  }
+
+  // Change handlers — flag dirty + mirror to globals.
+  $('gate-master').addEventListener('change', function (e) {
+    globals.enabled = e.target.checked;
+    setDirty(true);
+  });
+  $('gate-vacation').addEventListener('change', function (e) {
+    globals.vacationGate.enabled = e.target.checked;
+    syncVacationSubControl();
+    setDirty(true);
+  });
+  $('gate-vacation-mode').addEventListener('change', function (e) {
+    globals.vacationGate.controlUuid = e.target.value || null;
+    setDirty(true);
+  });
+
+  // Save: serialize and let the form submit normally.
+  $('save-form').addEventListener('submit', function () {
+    $('devices-json-field').value = JSON.stringify({
+      version: 1,
+      globals: globals,
+      devices: devices,
+    });
+    window.onbeforeunload = null;  // allow the navigation
+  });
+
+  // ---- vertical fit -------------------------------------------------------
+  // Size each panel-list to consume the available viewport height. We do
+  // this in JS rather than CSS because the space above the panels (LoxBerry
+  // header, flash banner, catalogue info, filter row) is variable — only
+  // the actual painted top of the panel is a reliable anchor.
+  function fitVertical() {
+    var lists = document.querySelectorAll('.panel-list');
+    if (lists.length === 0) return;
+    var top = lists[0].getBoundingClientRect().top;
+    var saveBar = document.querySelector('.save-bar');
+    var sbHeight = saveBar ? saveBar.getBoundingClientRect().height : 0;
+    // 50px of bottom breathing room so the last row isn't pinned to the bar.
+    var avail = window.innerHeight - top - sbHeight - 50;
+    var h = Math.max(300, avail);
+    for (var i = 0; i < lists.length; i++) {
+      lists[i].style.maxHeight = h + 'px';
+    }
+  }
+  window.addEventListener('resize', fitVertical);
+
+  // Initial render.
+  initGatekeepers();
+  renderAll();
+  // First measurement must wait for layout — render fills the DOM, rAF
+  // runs after the browser computes layout, so getBoundingClientRect
+  // returns real numbers.
+  window.requestAnimationFrame(fitVertical);
+})();
+</script>
+
+</TMPL_IF>

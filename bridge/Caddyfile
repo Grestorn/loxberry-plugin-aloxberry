@@ -1,0 +1,32 @@
+# Caddy configuration for the Aloxberry bridge.
+#
+# Caddy automatically obtains a Let's Encrypt cert for the hostname below
+# on first start. Port 80 must be reachable from the public internet for
+# the HTTP-01 ACME challenge. The HTTPS serving port (default 443, override
+# via HTTPS_PORT in .env) carries the actual traffic.
+# See bridge/README.md for the operator walkthrough.
+
+{
+	# ACME notification email. Caddy will use Let's Encrypt's anonymous
+	# flow if this is empty; recommended to provide one so you get
+	# renewal-failure warnings.
+	email {$ACME_EMAIL}
+
+	# Uncomment for first-time testing to avoid Let's Encrypt production
+	# rate limits (5 duplicate certs / week). Staging certs are NOT trusted
+	# by AWS Lambda — switch back to production before account-linking.
+	# Creaacme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+https://{$ALOXBERRY_BRIDGE_HOSTNAME}:{$HTTPS_PORT:443} {
+	# Reverse-proxy all paths (including /connect WebSocket upgrades — Caddy
+	# detects and tunnels them automatically) to the bridge container.
+	reverse_proxy bridge:8080
+
+	# Structured access logs to stdout. `docker compose logs caddy` shows
+	# every HTTPS hit; useful for spotting probe spam or auth failures.
+	log {
+		output stdout
+		format console
+	}
+}

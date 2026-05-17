@@ -1,0 +1,15 @@
+{
+  "name": "@aloxberry/oauth-handler",
+  "version": "0.6.0",
+  "description": "Lambda: OAuth2 Authorization Code Grant server for Alexa account linking. Issues JWT access tokens that the Alexa directive Lambda consumes.",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-pkce-clientauth.cjs"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@aloxberry/shared": "file:../shared",
+    "esbuild": "^0.24.0"
+  }
+}

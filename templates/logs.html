@@ -1,0 +1,44 @@
+<!--
+  Aloxberry - Logs tab.
+  Rendered by webfrontend/htmlauth/index.cgi when ?page=logs.
+
+  Two cards:
+    1. Log-level form (hands off to save_settings; same daemon.env round-trip
+       as the Setup tab's Settings card).
+    2. LoxBerry log-session list — uses LoxBerry::Web::loglist_html() output
+       injected as LOGLIST_HTML. The standard log viewer handles per-session
+       open/download/delete; we just embed it here.
+
+  See templates/status.html (the Setup tab) for the styling rules; this
+  template reuses them so any visual change to .ax-card / .ax-btn lands
+  uniformly.
+-->
+
+<TMPL_IF HAS_FLASH>
+  <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
+</TMPL_IF>
+
+<!-- ============================================================ -->
+<!-- LoxBerry log sessions + per-plugin level (single source)     -->
+<!-- ============================================================ -->
+<!-- The level dropdown inside `LOGLIST_HTML` is LoxBerry's own — the
+     daemon reads that value at start time (via log-session-create.pl).
+     We deliberately do NOT render a second dropdown of our own to avoid
+     two sources of truth that drift out of sync. -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=LOGS.SESSIONS_SECTION></h2>
+  <div class="ax-flash info"><TMPL_VAR NAME=LOGS.RESTART_REQUIRED_NOTICE></div>
+  <!-- HTML rendered by LoxBerry::Web::loglist_html() — already styled by
+       LoxBerry's base CSS. NOT escaped (it is trusted, server-generated). -->
+  <TMPL_VAR NAME=LOGLIST_HTML>
+</div>
+
+<!-- ============================================================ -->
+<!-- SSH tail hint                                                -->
+<!-- ============================================================ -->
+<div class="ax-card">
+  <h2><TMPL_VAR NAME=LOGS.SSH_SECTION></h2>
+  <p><TMPL_VAR NAME=LOGS.SSH_INSTRUCTIONS></p>
+  <pre><code class="ax-inline">/opt/loxberry/bin/plugins/alexa-aloxberry/tail-daemon.sh</code></pre>
+  <div class="ax-hint"><TMPL_VAR NAME=LOGS.SSH_HINT></div>
+</div>

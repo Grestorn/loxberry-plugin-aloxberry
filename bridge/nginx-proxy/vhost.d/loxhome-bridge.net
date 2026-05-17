@@ -1,0 +1,16 @@
+# Aloxberry bridge — vhost-scoped nginx overrides.
+#
+# Deploy: copy this file into nginx-proxy's vhost.d/ directory
+# (on the GKS server: /opt/dockerapp/proxy/vhost.d/loxhome-bridge.net).
+# nginx-proxy includes any file named after a VIRTUAL_HOST into that
+# vhost's server { ... } block automatically.
+#
+# Purpose: WebSocket lifetime tuning.
+# The bridge holds a long-lived /connect WebSocket from each plugin
+# daemon. nginx-proxy's default template already passes Upgrade/Connection
+# headers correctly (no need to add those here), but nginx's default
+# proxy_read_timeout of 60s would close the connection on the first
+# heartbeat slip. Bumping to 2 hours matches the standard nginx-proxy
+# WebSocket pattern and is well above the bridge's 30s heartbeat cadence.
+proxy_read_timeout 7200s;
+proxy_send_timeout 7200s;

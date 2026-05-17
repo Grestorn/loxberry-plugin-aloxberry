@@ -1,0 +1,14 @@
+{
+  "name": "@aloxberry/shared",
+  "version": "0.6.0",
+  "description": "Shared modules for the Loxberry Alexa Smart Home Lambda functions (DDB clients, JWT, HMAC, SSM, structured logging).",
+  "private": true,
+  "main": "src/index.js",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/client-ssm": "^3.658.0",
+    "@aws-sdk/lib-dynamodb": "^3.658.0",
+    "jose": "^5.9.6"
+  }
+}

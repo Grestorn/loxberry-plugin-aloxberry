@@ -1,0 +1,78 @@
+# Aloxberry bridge — Docker Compose reference deployment.
+# Two services: the bridge (Node.js) and Caddy in front for Let's Encrypt TLS.
+# Compose reads ./.env automatically; copy .env.example to .env and edit.
+#
+# First run:   docker compose up -d
+# Logs:        docker compose logs -f bridge   (or -f caddy)
+# Update:      git pull && docker compose up -d --build
+# Stop:        docker compose down
+
+services:
+  bridge:
+    build: .
+    image: aloxberry-bridge:local
+    container_name: aloxberry-bridge
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      # Required. Compose's ${VAR:?...} syntax aborts startup if unset.
+      BRIDGE_DISPATCH_SECRET: ${BRIDGE_DISPATCH_SECRET:?BRIDGE_DISPATCH_SECRET is required — see .env.example}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # URL of Lambda's /event endpoint — bridge POSTs daemon-originated
+      # ChangeReports here (Phase 4 outbound). Empty value disables outbound
+      # forwarding gracefully (the bridge logs and drops; daemon stays up).
+      LAMBDA_EVENT_URL: ${LAMBDA_EVENT_URL:-}
+      # Optional tunables; safe defaults if unset.
+      HELLO_TIMEOUT_MS: ${HELLO_TIMEOUT_MS:-5000}
+      HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-30000}
+      PONG_TIMEOUT_MS: ${PONG_TIMEOUT_MS:-60000}
+      DISPATCH_TIMEOUT_MS: ${DISPATCH_TIMEOUT_MS:-10000}
+    expose:
+      - "8080"
+    networks:
+      - aloxberry
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: aloxberry-caddy
+    restart: unless-stopped
+    environment:
+      ALOXBERRY_BRIDGE_HOSTNAME: ${ALOXBERRY_BRIDGE_HOSTNAME:?ALOXBERRY_BRIDGE_HOSTNAME is required — see .env.example}
+      # ACME notification email. Optional but recommended (Let's Encrypt
+      # sends expiry/renewal-failure mail here). Caddy accepts an empty
+      # value and falls back to its anonymous flow.
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      # HTTPS port Caddy listens on (inside container). Substituted into the
+      # Caddyfile site address. Defaults to 443; override (e.g. 8443) when
+      # running alongside another service that already owns 443.
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+    ports:
+      # Port 80 is always required for Let's Encrypt's HTTP-01 challenge.
+      - "80:80"
+      # HTTPS serving port. Operators on a NAS that already uses 443 can
+      # set HTTPS_PORT=8443 (or any free port) in .env. Lambda and the
+      # plugin both handle non-default ports in the bridge URL natively.
+      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}"
+      # HTTP/3 (QUIC). Optional — Caddy serves it automatically when the
+      # HTTPS port is also reachable over UDP. Uncomment and adjust if you
+      # forward UDP through your router/firewall.
+      # - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - bridge
+    networks:
+      - aloxberry
+
+networks:
+  aloxberry:
+    driver: bridge
+
+volumes:
+  # caddy_data holds the issued cert, ACME account key, and renewal metadata.
+  # Surviving restarts is what avoids re-issuing certs on every redeploy
+  # (Let's Encrypt rate-limits 5 duplicate certs / week).
+  caddy_data:
+  caddy_config:

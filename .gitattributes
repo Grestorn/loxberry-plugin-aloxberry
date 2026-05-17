@@ -1,0 +1,48 @@
+# Enforce line endings so files behave correctly when this repo is checked out
+# on Windows and the resulting tree is used to build a Linux-bound plugin ZIP.
+#
+# Shell scripts, Perl, Python and CGI must have LF line endings — a CR in a
+# shebang line (e.g. "#!/bin/bash\r") makes Linux look for a binary literally
+# named "bash\r" and fail with "not found".
+
+# Default: let git decide based on file content, but normalize to LF in the repo.
+* text=auto eol=lf
+
+# Files that MUST be LF (executed on Linux).
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.pl        text eol=lf
+*.pm        text eol=lf
+*.py        text eol=lf
+*.cgi       text eol=lf
+uninstall/uninstall text eol=lf
+
+# Files that MUST be CRLF (executed on Windows).
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Plain text — let git normalize.
+*.md        text
+*.json      text
+*.yaml      text
+*.yml       text
+*.cfg       text
+*.ini       text
+*.txt       text
+*.html      text
+*.htm       text
+*.css       text
+*.js        text
+*.ts        text
+
+# Binary — never normalize.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.zip       binary
+*.tar       binary
+*.gz        binary
+*.pdf       binary

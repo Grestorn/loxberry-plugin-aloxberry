@@ -1,0 +1,79 @@
+# Aloxberry bridge — deployment for an nginx-proxy + acme-companion stack.
+#
+# Intended target: the GKS public web server (D:\Development\git\SpiralWebServer)
+# which already runs `nginxproxy/nginx-proxy` + `nginxproxy/acme-companion`
+# under `/opt/dockerapp/proxy/` on the network `spiral_nw`.
+#
+# How it works:
+#   - This stack adds ONE container (the bridge) onto `spiral_nw`.
+#   - The container exposes its HTTP port internally (8080).
+#   - The labels VIRTUAL_HOST / VIRTUAL_PORT tell nginx-proxy to create a
+#     vhost for ${ALOXBERRY_BRIDGE_HOSTNAME} and reverse-proxy it to
+#     bridge:8080. nginx-proxy reloads itself within a few seconds.
+#   - The label LETSENCRYPT_HOST tells acme-companion to request a Let's
+#     Encrypt cert for that hostname. Cert is stored in nginx-proxy's
+#     `./certs` volume and is auto-renewed.
+#   - WebSocket upgrade headers are already in nginx-proxy's default
+#     template; the read/send timeouts get bumped to 2h via
+#     `vhost.d/loxhome-bridge.net` (copy that file into the proxy stack's
+#     `vhost.d/` directory).
+#
+# Deployment:
+#   1. Copy this directory to the GKS server (e.g. /opt/dockerapp/aloxberry-bridge/)
+#   2. Copy ./vhost.d/loxhome-bridge.net into /opt/dockerapp/proxy/vhost.d/
+#   3. cp .env.example .env  and fill in the real values
+#   4. docker compose up -d
+#   5. Add an A/AAAA record for ${ALOXBERRY_BRIDGE_HOSTNAME} pointing at the
+#      GKS server's public IP. acme-companion will obtain the cert as soon
+#      as DNS resolves and port 80 reaches the host (the existing
+#      nginx-proxy already binds 80, so this is automatic).
+#
+# Logs:
+#   docker logs -f aloxberry-bridge
+#
+# Rolling secrets:
+#   Edit .env, then `docker compose up -d` again — Compose recreates the
+#   container with the new env. The bridge daemon's BRIDGE_DISPATCH_SECRET
+#   must also be updated in AWS SSM at /loxberry-alexa/bridge-dispatch-secret
+#   (otherwise Lambda dispatches will be rejected by the bridge).
+
+services:
+  bridge:
+    image: ghcr.io/grestorn/aloxberry-bridge:latest
+    container_name: aloxberry-bridge
+    restart: unless-stopped
+    environment:
+      # ---- bridge runtime -----------------------------------------------
+      BRIDGE_DISPATCH_SECRET: "${BRIDGE_DISPATCH_SECRET}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # URL of Lambda's /event endpoint — bridge POSTs daemon-originated
+      # ChangeReports here (Phase 4 outbound). Empty value disables outbound
+      # forwarding gracefully (the bridge logs and drops, daemon stays up).
+      LAMBDA_EVENT_URL: "${LAMBDA_EVENT_URL:-}"
+
+      # ---- nginx-proxy auto-config --------------------------------------
+      # nginx-proxy watches Docker events for containers with these env
+      # vars and rebuilds its config automatically. No manual nginx.conf
+      # edits needed.
+      VIRTUAL_HOST: "${ALOXBERRY_BRIDGE_HOSTNAME}"
+      VIRTUAL_PORT: "8080"
+
+      # ---- acme-companion auto-cert -------------------------------------
+      # Triggers Let's Encrypt issuance for LETSENCRYPT_HOST. Cert lives
+      # in the proxy stack's ./certs volume; renewals happen automatically.
+      LETSENCRYPT_HOST: "${ALOXBERRY_BRIDGE_HOSTNAME}"
+      # Falls back to acme-companion's DEFAULT_EMAIL if unset. Set this if
+      # you want renewal-failure mail to go somewhere specific to the bridge.
+      LETSENCRYPT_EMAIL: "${ACME_EMAIL}"
+    networks:
+      - spiral_nw
+
+networks:
+  # External — created and managed by the proxy stack
+  # (/opt/dockerapp/proxy/docker-compose.yaml). We attach to it, we don't
+  # own it. If you deploy this on a different server, change the name to
+  # match whatever your nginx-proxy uses (or remove `external: true` to
+  # let compose create a fresh network — but then nginx-proxy can't see
+  # the bridge).
+  spiral_nw:
+    external: true

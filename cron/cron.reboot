@@ -1,0 +1,21 @@
+#!/bin/bash
+#
+# Boot-time startup for the Aloxberry daemon.
+# LoxBerry runs this file as the `loxberry` user once per boot.
+#
+# We just delegate to control.sh — the actual logic lives there so the CGI's
+# "Start" button and the manual SSH invocation share one code path.
+
+PLUGINNAME=REPLACELBPPLUGINDIR
+LBPBINDIR="$LBHOMEDIR/bin/plugins/$PLUGINNAME"
+LBPLOGDIR="$LBHOMEDIR/log/plugins/$PLUGINNAME"
+
+mkdir -p "$LBPLOGDIR"
+
+# Tiny audit trail so it's obvious *why* the daemon is running after a reboot.
+echo "[$(date -Iseconds)] cron.reboot: starting daemon via control.sh" \
+    >> "$LBPLOGDIR/cron-reboot.log"
+
+"$LBPBINDIR/control.sh" start >> "$LBPLOGDIR/cron-reboot.log" 2>&1
+
+exit 0

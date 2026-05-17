@@ -1,0 +1,429 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Loxberry Alexa Smart Home — multi-tenant AWS backend.
+  Two Lambdas (Alexa directive handler, OAuth account-linking server) plus two
+  DynamoDB tables. A single deployment of this stack serves every Loxberry
+  installation that has linked itself via the OAuth flow.
+
+# -----------------------------------------------------------------------------
+# Parameters
+# -----------------------------------------------------------------------------
+
+Parameters:
+
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, prod]
+    Description: Deployment stage. Used to namespace DynamoDB tables and log groups.
+
+  JwtSecretParam:
+    Type: String
+    Default: /loxberry-alexa/jwt-secret
+    Description: >-
+      SSM Parameter Store path holding the JWT signing secret (SecureString).
+      Create it manually before first deploy:
+        aws ssm put-parameter --name /loxberry-alexa/jwt-secret \
+                              --type SecureString \
+                              --value "$(openssl rand -hex 32)"
+
+  BridgeUrl:
+    Type: String
+    Default: ''
+    Description: >-
+      Public base URL of the dispatch bridge, e.g. https://bridge.example.com.
+      The Lambdas POST /dispatch and GET /probe against this host. Leave blank
+      until the bridge is deployed; both Lambdas will refuse to forward
+      directives when this is unset.
+
+  BridgeDispatchSecretParam:
+    Type: String
+    Default: /loxberry-alexa/bridge-dispatch-secret
+    Description: >-
+      SSM Parameter Store path holding the shared secret used to authenticate
+      Lambda → bridge calls (SecureString). The bridge container is started
+      with the same secret as BRIDGE_DISPATCH_SECRET. Create with:
+        aws ssm put-parameter --name /loxberry-alexa/bridge-dispatch-secret \
+                              --type SecureString \
+                              --value "$(openssl rand -hex 32)"
+
+  LwaClientIdParam:
+    Type: String
+    Default: /loxberry-alexa/lwa-client-id
+    Description: >-
+      SSM Parameter Store path (SecureString) holding the LWA (Login With
+      Amazon) client ID for the Alexa skill — needed for Phase 4 outbound
+      events (proactive state reports). Read from the skill's "Permissions"
+      page in the Alexa Developer Console; populate with:
+        aws ssm put-parameter --name /loxberry-alexa/lwa-client-id \
+                              --type SecureString --value "amzn1.application-oa2-client.xxxx"
+
+  LwaClientSecretParam:
+    Type: String
+    Default: /loxberry-alexa/lwa-client-secret
+    Description: >-
+      SSM Parameter Store path (SecureString) holding the LWA client secret
+      that pairs with LwaClientIdParam. Populate with:
+        aws ssm put-parameter --name /loxberry-alexa/lwa-client-secret \
+                              --type SecureString --value "<client secret from Developer Console>"
+
+  OAuthClientIdParam:
+    Type: String
+    Default: /loxberry-alexa/oauth-client-id
+    Description: >-
+      SSM Parameter Store path (SecureString) holding the OAuth Client ID
+      that Alexa presents to /token. This is the "Client ID" you enter on
+      the skill's Account Linking page — choose any opaque value. The token
+      endpoint FAILS CLOSED (503) until this and OAuthClientSecretParam are
+      set. Create with:
+        aws ssm put-parameter --name /loxberry-alexa/oauth-client-id \
+                              --type SecureString --value "<client id you set in Account Linking>"
+
+  OAuthClientSecretParam:
+    Type: String
+    Default: /loxberry-alexa/oauth-client-secret
+    Description: >-
+      SSM Parameter Store path (SecureString) holding the OAuth Client
+      Secret pairing with OAuthClientIdParam — the "Client Secret" field on
+      the skill's Account Linking page. Create with:
+        aws ssm put-parameter --name /loxberry-alexa/oauth-client-secret \
+                              --type SecureString --value "$(openssl rand -hex 32)"
+
+  AlexaSkillId:
+    Type: String
+    Default: ''
+    Description: >-
+      Alexa Skill ID, e.g. amzn1.ask.skill.xxxxxxxx. Leave blank during the very
+      first deploy — at that point the skill does not exist yet, so we cannot
+      restrict invocations to it. After the skill has been created in the Alexa
+      Developer Console, redeploy with this parameter set to lock down the
+      Lambda permission to that skill only.
+
+  BetaMaxConnectionsDefault:
+    Type: Number
+    Default: 100
+    MinValue: 0
+    Description: >-
+      Beta-phase cap on the number of DISTINCT LoxBerry installations
+      (bridgeUserId) that may link the skill. This is only the fallback used
+      until the value is written into the ConfigTable; once the
+      `betaMaxConnections` config item exists, THAT value wins and this
+      parameter is ignored. The oauth-handler lazily seeds the config item
+      with this value on the first link attempt. Raise it (or set it via the
+      beta-limit script) to widen the beta. An already-linked installation can
+      always add more Alexa accounts even when the cap is reached.
+
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 7, 14, 30, 60, 90, 365]
+    Description: CloudWatch Logs retention for both Lambda log groups.
+
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues: [DEBUG, INFO, WARN, ERROR]
+    Description: >
+      Minimum log level for both Lambda functions. Default INFO keeps only
+      lifecycle events + warnings + errors — per-request logs are silenced
+      to keep CloudWatch ingestion bounded at scale (hundreds of users ×
+      hundreds of devices). Set to DEBUG when investigating; redeploy with
+      INFO when done.
+
+# -----------------------------------------------------------------------------
+# Conditions
+# -----------------------------------------------------------------------------
+
+Conditions:
+
+  HasSkillId: !Not [!Equals [!Ref AlexaSkillId, '']]
+
+# -----------------------------------------------------------------------------
+# Globals — shared defaults for all SAM Functions
+# -----------------------------------------------------------------------------
+
+Globals:
+
+  Function:
+    Runtime: nodejs24.x
+    # Graviton: ~20% cheaper, ~20% faster cold-starts than x86_64 for Node.js.
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 10
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+      ApplicationLogLevel: !Ref LogLevel
+      SystemLogLevel: WARN
+    Environment:
+      Variables:
+        USERS_TABLE: !Ref UsersTable
+        AUTHCODES_TABLE: !Ref AuthCodesTable
+        CONFIG_TABLE: !Ref ConfigTable
+        BETA_MAX_CONNECTIONS_DEFAULT: !Ref BetaMaxConnectionsDefault
+        JWT_SECRET_PARAM: !Ref JwtSecretParam
+        BRIDGE_URL: !Ref BridgeUrl
+        BRIDGE_DISPATCH_SECRET_PARAM: !Ref BridgeDispatchSecretParam
+        LWA_CLIENT_ID_PARAM: !Ref LwaClientIdParam
+        LWA_CLIENT_SECRET_PARAM: !Ref LwaClientSecretParam
+        OAUTH_CLIENT_ID_PARAM: !Ref OAuthClientIdParam
+        OAUTH_CLIENT_SECRET_PARAM: !Ref OAuthClientSecretParam
+        STAGE: !Ref Stage
+        # Filter threshold for our `@aloxberry/shared` logger. Below this
+        # level, emit() is a no-op — saves the JSON.stringify too. Both
+        # ApplicationLogLevel above (Lambda-native cap) and this env var
+        # (our app-level filter) honour the same parameter, so flipping
+        # LogLevel=DEBUG on `sam deploy` enables verbose logging end-to-end.
+        LOG_LEVEL: !Ref LogLevel
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+
+Resources:
+
+  # ---- DynamoDB --------------------------------------------------------------
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub alexa-loxberry-users-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # Operator-tunable runtime config. Single-purpose today (the beta
+  # connection cap, key `betaMaxConnections`) but a generic key/value table so
+  # future toggles don't need schema changes. Retained on stack delete — the
+  # operator's tuning should survive a redeploy, same rationale as UsersTable.
+  ConfigTable:
+    Type: AWS::DynamoDB::Table
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Properties:
+      TableName: !Sub alexa-loxberry-config-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: configKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: configKey
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+
+  AuthCodesTable:
+    Type: AWS::DynamoDB::Table
+    # Auth codes are short-lived (10 min TTL); losing the table on stack delete
+    # is acceptable, so no Retain policy here.
+    Properties:
+      TableName: !Sub alexa-loxberry-authcodes-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: code
+          AttributeType: S
+      KeySchema:
+        - AttributeName: code
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # ---- HTTP API for OAuth ---------------------------------------------------
+  # Using $default stage (no path prefix) so the OAuth URLs are clean:
+  #   https://<api-id>.execute-api.eu-west-1.amazonaws.com/authorize
+  #   https://<api-id>.execute-api.eu-west-1.amazonaws.com/token
+
+  OAuthApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      DisableExecuteApiEndpoint: false
+
+  # ---- OAuth handler --------------------------------------------------------
+
+  OAuthHandlerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node22
+        Minify: false
+        Sourcemap: true
+        EntryPoints:
+          - index.js
+        External:
+          # The AWS SDK v3 is preinstalled in the Lambda Node.js 20 runtime —
+          # bundling it would add ~2 MB to every cold start for no benefit.
+          - '@aws-sdk/*'
+    Properties:
+      FunctionName: !Sub loxberry-alexa-oauth-${Stage}
+      CodeUri: ../lambda/oauth-handler/
+      Handler: index.handler
+      Description: OAuth2 Authorization Code Grant server for Alexa account linking
+      Timeout: 15
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuthCodesTable
+        # Beta connection cap: GetItem (read the limit) + conditional PutItem
+        # (lazy-seed the default). CrudPolicy is broader than needed but keeps
+        # the template uniform with the other two tables.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConfigTable
+        # SAM's SSMParameterReadPolicy template expects ParameterName without a
+        # leading slash and prepends `parameter/` itself. Our JwtSecretParam
+        # value (`/loxberry-alexa/jwt-secret`) already has the slash, so the
+        # template would build `parameter//...` — a malformed ARN that
+        # silently grants access to a non-existent resource. Inline the
+        # statement with the correct ARN construction.
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${JwtSecretParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BridgeDispatchSecretParam}'
+                # Phase 4 /event handler refreshes LWA access tokens.
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LwaClientIdParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LwaClientSecretParam}'
+                # Token-endpoint client authentication (RFC 6749 §2.3).
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OAuthClientIdParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OAuthClientSecretParam}'
+      Events:
+        Authorize:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OAuthApi
+            Method: ANY
+            Path: /authorize
+        Token:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OAuthApi
+            Method: POST
+            Path: /token
+        # Phase 4 outbound — bridge POSTs daemon-originated ChangeReports
+        # here. The Lambda verifies bridge-auth + daemon HMAC, mints a
+        # fresh LWA access token per recipient, and POSTs to Alexa's
+        # Event Gateway.
+        Event:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OAuthApi
+            Method: POST
+            Path: /event
+
+  OAuthHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OAuthHandlerFunction}
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ---- Alexa Smart Home handler ---------------------------------------------
+
+  AlexaHandlerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: cjs
+        Target: node22
+        Minify: false
+        Sourcemap: true
+        EntryPoints:
+          - index.js
+        External:
+          - '@aws-sdk/*'
+    Properties:
+      FunctionName: !Sub loxberry-alexa-directive-${Stage}
+      CodeUri: ../lambda/alexa-handler/
+      Handler: index.handler
+      Description: Alexa Smart Home directive dispatcher (forwards to per-user Loxberry)
+      # Alexa Smart Home directives must be answered within 8 seconds.
+      Timeout: 8
+      Policies:
+        # AcceptGrant needs UpdateItem on UsersTable to persist lwaRefreshToken;
+        # everything else this Lambda does on UsersTable is read-only. The
+        # CrudPolicy template gives more grants than we need but keeps the
+        # template terse — narrow it later if least-privilege bites.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        # See OAuthHandlerFunction above for why we inline this rather than
+        # using the SSMParameterReadPolicy template.
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${JwtSecretParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BridgeDispatchSecretParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LwaClientIdParam}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${LwaClientSecretParam}'
+
+  # SAM's `Type: AlexaSkill` event creates a permission for principal
+  # `alexa-appkit.amazon.com` — that's for Custom (intent) skills, NOT Smart
+  # Home. Smart Home directives arrive from `alexa-connectedhome.amazon.com`,
+  # so we declare the permission ourselves.
+  #
+  # On first deploy AlexaSkillId is empty (the skill doesn't exist yet) and the
+  # permission is open to any Smart Home skill. After you create the skill in
+  # the Developer Console and set AlexaSkillId in samconfig.toml, redeploying
+  # ties this permission to that specific skill via EventSourceToken.
+  AlexaHandlerSmartHomePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AlexaHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: alexa-connectedhome.amazon.com
+      EventSourceToken: !If [HasSkillId, !Ref AlexaSkillId, !Ref AWS::NoValue]
+
+  AlexaHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AlexaHandlerFunction}
+      RetentionInDays: !Ref LogRetentionDays
+
+# -----------------------------------------------------------------------------
+# Outputs — values needed to configure the Alexa skill in the Developer Console
+# -----------------------------------------------------------------------------
+
+Outputs:
+
+  OAuthBaseUrl:
+    Description: >-
+      Base URL of the OAuth API. Configure account linking in the Alexa skill
+      with: Authorization URI = ${OAuthBaseUrl}/authorize,
+            Access Token URI  = ${OAuthBaseUrl}/token
+    Value: !Sub 'https://${OAuthApi}.execute-api.${AWS::Region}.amazonaws.com'
+
+  AlexaHandlerArn:
+    Description: >-
+      ARN of the Alexa directive Lambda. Paste this into the Alexa Developer
+      Console as the Smart Home skill's "Default endpoint" / "Europe" endpoint.
+    Value: !GetAtt AlexaHandlerFunction.Arn
+
+  UsersTableName:
+    Value: !Ref UsersTable
+
+  AuthCodesTableName:
+    Value: !Ref AuthCodesTable
+
+  ConfigTableName:
+    Value: !Ref ConfigTable
+
+  Region:
+    Value: !Ref AWS::Region

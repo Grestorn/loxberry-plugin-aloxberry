@@ -1,0 +1,97 @@
+{
+  "name": "loxberry-plugin-aloxberry",
+  "version": "0.6.0",
+  "description": "LoxBerry Alexa Smart Home plugin (release tooling only — not a runtime dependency of the plugin)",
+  "private": true,
+  "scripts": {
+    "release:major": "node .github/release.js major false",
+    "release:minor": "node .github/release.js minor false",
+    "release:patch": "node .github/release.js patch false",
+    "pre:major": "node .github/release.js major true",
+    "pre:minor": "node .github/release.js minor true",
+    "pre:patch": "node .github/release.js patch true"
+  },
+  "config": {
+    "release": {
+      "//": "Each release run bumps ONLY the components whose watched paths changed since the last release tag. See .github/release.js.",
+      "components": [
+        {
+          "name": "plugin",
+          "kind": "plugin",
+          "watch": [
+            "bin",
+            "webfrontend",
+            "templates",
+            "cron",
+            "config",
+            "icons",
+            "plugin.cfg",
+            "preinstall.sh",
+            "postinstall.sh",
+            "preupgrade.sh",
+            "postupgrade.sh",
+            "uninstall"
+          ]
+        },
+        {
+          "name": "daemon",
+          "kind": "npm",
+          "path": "bin",
+          "watch": [
+            "bin"
+          ]
+        },
+        {
+          "name": "bridge",
+          "kind": "npm",
+          "path": "bridge",
+          "watch": [
+            "bridge"
+          ]
+        },
+        {
+          "name": "aws",
+          "kind": "npm",
+          "path": "aws",
+          "watch": [
+            "aws/infrastructure",
+            "aws/scripts",
+            "aws/package.json"
+          ]
+        },
+        {
+          "name": "alexa-handler",
+          "kind": "npm",
+          "path": "aws/lambda/alexa-handler",
+          "watch": [
+            "aws/lambda/alexa-handler"
+          ]
+        },
+        {
+          "name": "oauth-handler",
+          "kind": "npm",
+          "path": "aws/lambda/oauth-handler",
+          "watch": [
+            "aws/lambda/oauth-handler"
+          ]
+        },
+        {
+          "name": "shared",
+          "kind": "npm",
+          "path": "aws/lambda/shared",
+          "watch": [
+            "aws/lambda/shared"
+          ]
+        }
+      ]
+    }
+  },
+  "author": "Martin Korndörfer <martin@korndoerfer.de>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "generate-changelog": "1.8.0",
+    "prompts": "2.4.2",
+    "read-ini-file": "3.0.1",
+    "write-ini-file": "3.0.2"
+  }
+}
