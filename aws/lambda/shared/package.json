@@ -1,6 +1,6 @@
 {
   "name": "@aloxberry/shared",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Shared modules for the Aloxberry Lambda functions (DDB clients, JWT, HMAC, SSM, structured logging).",
   "private": true,
   "main": "src/index.js",
