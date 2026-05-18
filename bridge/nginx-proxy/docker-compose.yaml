@@ -50,6 +50,10 @@ services:
       # ChangeReports here (Phase 4 outbound). Empty value disables outbound
       # forwarding gracefully (the bridge logs and drops, daemon stays up).
       LAMBDA_EVENT_URL: "${LAMBDA_EVENT_URL:-}"
+      # Pair-code lifetime (ms). Empty/unset = the built-in 10-minute default
+      # (see bridge/src/pair.js). Set a longer value ONLY for a time-boxed
+      # Alexa certification review (e.g. 259200000 = 72h), then clear it.
+      PAIR_TTL_MS: "${PAIR_TTL_MS:-}"
 
       # ---- nginx-proxy auto-config --------------------------------------
       # nginx-proxy watches Docker events for containers with these env

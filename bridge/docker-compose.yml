@@ -27,6 +27,10 @@ services:
       HEARTBEAT_INTERVAL_MS: ${HEARTBEAT_INTERVAL_MS:-30000}
       PONG_TIMEOUT_MS: ${PONG_TIMEOUT_MS:-60000}
       DISPATCH_TIMEOUT_MS: ${DISPATCH_TIMEOUT_MS:-10000}
+      # Pair-code lifetime (ms). Empty/unset = the built-in 10-minute default
+      # (see bridge/src/pair.js). Set a longer value ONLY for a time-boxed
+      # Alexa certification review (e.g. 259200000 = 72h), then clear it.
+      PAIR_TTL_MS: ${PAIR_TTL_MS:-}
     expose:
       - "8080"
     networks:

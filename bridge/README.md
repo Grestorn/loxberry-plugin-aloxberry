@@ -179,6 +179,7 @@ curl http://localhost:8080/health
 | `HEARTBEAT_INTERVAL_MS` | no | `30000` | App-layer ping cadence. Must be less than your intermediary's WS idle cap (Cloudflare = 100 s). |
 | `PONG_TIMEOUT_MS` | no | `60000` | Plugin must pong within this window. Should be ≥ 2× heartbeat interval. |
 | `DISPATCH_TIMEOUT_MS` | no | `10000` | Plugin must respond to a forwarded directive within this window. Alexa's own Lambda budget is 8 s. |
+| `PAIR_TTL_MS` | no | `600000` (10 min) | Pair-code lifetime in ms. Leave unset in normal operation. Set to a longer value **only** for a time-boxed Alexa certification review (e.g. `259200000` = 72 h), then clear it. Codes are one-shot regardless; a longer TTL only widens the pre-redemption window. Held in bridge process memory only — a container restart drops all pending codes and the daemon must publish a fresh one. |
 
 ## HTTP surface
 
