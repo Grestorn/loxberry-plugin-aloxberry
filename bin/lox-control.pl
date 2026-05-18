@@ -53,15 +53,26 @@ my ($msnr, $uuid, $cmd) = @ARGV;
 # modes); this is the backstop so a future caller can't path-traverse or
 # inject a query/fragment into the authenticated request.
 #
-#   $uuid : a Loxone UUID — strictly hex + dashes, nothing else.
+#   $uuid : a Loxone uuidAction. Two shapes:
+#           - top-level control: strictly hex + dashes
+#             (e.g. 1bd9a3ed-00b1-3956-ffff3b8739cfc0c6)
+#           - sub-control of a LightControllerV2 / composite block: the
+#             parent's hex+dash uuid followed by one or more
+#             "/<alnum-segment>" suffixes (e.g. <parentUuid>/AI2,
+#             <parentUuid>/masterValue). The slash is part of the
+#             resource identifier Loxone expects on the jdev/sps/io
+#             path — NOT a command separator. Rejecting it here was the
+#             root cause of every "Lichtgruppe" failing while the parent
+#             Lichtbaustein worked. Segments are strictly [A-Za-z0-9]+,
+#             so `..`, query/fragment, and backslash can't slip through.
 #   $cmd  : a structured command. Legitimate shapes include On / off /
 #           reset / 42 / 21.5 / changeTo/5 / setTimer/7200/100/2/0 /
 #           repeat/1 / source/3 / setFan/1 / hsv(120,100,50) /
 #           temp(50,4000). Allow exactly that character set; reject `..`
 #           path segments and the URL-structural chars ? # % \ and
 #           whitespace/control chars.
-if (!defined $uuid || $uuid !~ /\A[0-9A-Fa-f-]+\z/) {
-    print STDERR "fail: invalid uuid (must be hex and dashes only)\n";
+if (!defined $uuid || $uuid !~ m{\A[0-9A-Fa-f-]+(?:/[A-Za-z0-9]+)*\z}) {
+    print STDERR "fail: invalid uuid (expected hex+dashes, optionally with /<alnum> sub-control suffixes)\n";
     exit 2;
 }
 if (!defined $cmd
