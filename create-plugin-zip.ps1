@@ -57,7 +57,10 @@ try {
     # templates/   — i18n + HTML::Template files (used by index.cgi)
     # doc/         — user docs (optional)
     # webfrontend/ — htmlauth/plugins/<plugin>/index.cgi
-    $dirsAsIs = @('uninstall', 'cron', 'icons', 'templates', 'doc', 'webfrontend')
+    # config/      — persistent config dir; ships only README.md so the dir
+    #                survives LoxBerry's dotfile stripping non-empty (runtime
+    #                files are generated per-install by postinstall.sh).
+    $dirsAsIs = @('uninstall', 'cron', 'icons', 'templates', 'doc', 'webfrontend', 'config')
     foreach ($d in $dirsAsIs) {
         if (Test-Path $d -PathType Container) {
             Copy-Item -Recurse -Path $d -Destination $stageDir

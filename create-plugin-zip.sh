@@ -74,6 +74,15 @@ RSYNC_RULES=(
     --include='webfrontend/'
     --include='webfrontend/**'
 
+    # config/ — persistent (upgrade-surviving) plugin config dir. Runtime
+    # files (daemon.env, devices.json, identity/) are NOT shipped; they're
+    # generated per-install by postinstall.sh. We ship only config/README.md
+    # so the dir is non-empty AFTER LoxBerry strips dotfiles — otherwise the
+    # installer emits a non-fatal "config folder is empty" warning. Same
+    # dotfile trap that previously hit webfrontend/htmlauth/.gitkeep.
+    --include='config/'
+    --include='config/**'
+
     # bin/ — the daemon and its helpers.
     # We include the *runtime* surface and explicitly drop dev-only subdirs.
     --include='bin/'
