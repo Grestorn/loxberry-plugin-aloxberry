@@ -72,8 +72,9 @@ German versions: [Sicherheit](../de/security.md) ·
 
 ## In short — is anything required besides a LoxBerry?
 
-**No.** You need a **LoxBerry 1.4.3 or newer** (LoxBerry 3.x recommended) with
-this plugin installed, and a Loxone Miniserver it already talks to. The cloud
+**No.** You need a **LoxBerry 3.0 or newer** (which ships Node.js 18 by default,
+as required by the plugin) with this plugin installed, and a Loxone Miniserver
+it already talks to. Older LoxBerry versions are not supported. The cloud
 parts (AWS Lambda + the dispatch *bridge*) are **provided by the project for
 free** and shared by all users.
 

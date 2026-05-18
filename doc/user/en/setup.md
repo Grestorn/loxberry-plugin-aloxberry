@@ -6,7 +6,8 @@
 
 | Requirement | Notes |
 |-------------|-------|
-| **A LoxBerry** | Version 1.4.3 or newer; LoxBerry 3.x recommended. |
+| **A LoxBerry** | **Version 3.0 or newer is required.** Older LoxBerry versions are not supported. |
+| **Node.js 18 or newer** | Required by the plugin daemon. LoxBerry 3.0 ships Node.js 18 by default, so a stock LoxBerry 3.0 already satisfies this. |
 | **A Loxone Miniserver** | Already configured in LoxBerry (Settings → Miniserver). The plugin reuses that connection — you do **not** enter Loxone credentials here. |
 | **An Amazon account with Alexa** | The Alexa app on your phone, signed in. |
 | **Internet access from the LoxBerry** | Outbound only. No port forwarding, no public IP, no DynDNS required. |

@@ -73,9 +73,10 @@ Englische Fassungen: [Security](../en/security.md) ·
 
 ## Kurz gesagt — wird außer einem LoxBerry etwas benötigt?
 
-**Nein.** Du brauchst einen **LoxBerry 1.4.3 oder neuer** (LoxBerry 3.x
-empfohlen) mit installiertem Plugin und einen Loxone Miniserver, mit dem er
-ohnehin schon kommuniziert. Die Cloud-Teile (AWS Lambda + die Vermittlungs-
+**Nein.** Du brauchst einen **LoxBerry 3.0 oder neuer** (der Node.js 18
+standardmäßig mitliefert, wie vom Plugin benötigt) mit installiertem Plugin
+und einen Loxone Miniserver, mit dem er ohnehin schon kommuniziert. Ältere
+LoxBerry-Versionen werden nicht unterstützt. Die Cloud-Teile (AWS Lambda + die Vermittlungs-
 *Bridge*) werden **vom Projekt kostenlos bereitgestellt** und von allen
 Nutzern gemeinsam verwendet.
 

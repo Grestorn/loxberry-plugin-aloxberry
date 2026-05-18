@@ -1,9 +1,9 @@
 # Aloxberry — Alexa Smart Home plugin for Loxone
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENCE)
-[![LoxBerry](https://img.shields.io/badge/LoxBerry-%3E%3D1.4.3-green.svg)](https://www.loxwiki.eu/display/LOXBERRY/LoxBerry)
+[![LoxBerry](https://img.shields.io/badge/LoxBerry-%3E%3D3.0-green.svg)](https://www.loxwiki.eu/display/LOXBERRY/LoxBerry)
 
-> ⚠️ **Public beta (v0.5.0).** This is a public beta release intended for a
+> ⚠️ **Public beta.** This is a public beta release intended for a
 > limited circle of friendly‑user testers. Expect rough edges, breaking
 > changes between versions, and occasional re‑linking. Please report issues.
 
@@ -37,8 +37,9 @@ flowchart LR
 
 ## At a glance
 
-- **Requirement:** a LoxBerry ≥ 1.4.3 (3.x recommended) with a configured
-  Loxone Miniserver. Nothing else — no port forwarding, no public IP.
+- **Requirement:** a LoxBerry ≥ 3.0 (ships Node.js 18 by default, as required
+  by the plugin) with a configured Loxone Miniserver. Older LoxBerry versions
+  are not supported. Nothing else — no port forwarding, no public IP.
 - **Safety:** opt‑in per device, end‑to‑end HMAC (blind bridge), no inbound
   exposure, Loxone credentials never leave the LoxBerry, prominent kill
   switches. See [`doc/user/en/security.md`](doc/user/en/security.md).
