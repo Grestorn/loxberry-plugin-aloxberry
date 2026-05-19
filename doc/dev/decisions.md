@@ -93,6 +93,24 @@ the lost‑response desync — that is exactly the breakage this note exists to
 prevent. Successful refreshes log `oauth.refresh.ok` at INFO as the
 per‑account hourly liveness heartbeat.
 
+**Never `Scan` with `Limit: N` for a filtered lookup.** The opaque
+refresh/bridge tokens have no key or index, so they are found by
+`ScanCommand` + `FilterExpression`. DynamoDB applies `Limit` to items **read
+before** the filter, not items **returned after** it — so a `Scan` with
+`Limit: 1` reads exactly one arbitrary row and matches only if that row is
+the one you wanted. It is silently correct with a single user row and
+silently broken at ≥2 (≈`1/N` success per call). A `Limit: 1` here was the
+root cause of the "every additional linked user breaks every other user's
+account link" outage: each new linked account enlarged the `users` table and
+diluted every refresh's hit rate, so `oauth.refresh.not_found` →
+`invalid_grant` → Alexa drops the skill. Token lookups must **paginate the
+scan** (`do { … } while (LastEvaluatedKey)`, no `Limit`) and stop on the
+first match — see `distinctBridgeInstalls` for the canonical pattern.
+O(table) per refresh is fine at beta scale (low hundreds of rows); a GSI on
+`refreshToken`/`prevRefreshToken` (and `bridgeUserId` for `/event` fanout) is
+the proper scale optimisation, but it is a *performance* follow‑up — the
+`Limit` removal is the *correctness* fix and must not be reverted.
+
 **SSM SecureStrings, cached across warm invocations.** Secrets out of code and
 env; one KMS decrypt per cold start.
 

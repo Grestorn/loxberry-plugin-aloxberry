@@ -530,13 +530,32 @@ async function exchangeRefreshToken(form) {
   // so Alexa converges back onto the stable token on its next refresh.
   // The legacy prev* fields are simply no longer written and decay
   // harmlessly (the users table has no TTL on them; they're inert).
-  const scan = await getDocClient().send(new ScanCommand({
-    TableName: tableNames.users,
-    FilterExpression: 'refreshToken = :rt OR prevRefreshToken = :rt',
-    ExpressionAttributeValues: { ':rt': refresh_token },
-    Limit: 1,
-  }));
-  const user = scan.Items && scan.Items[0];
+  // Find the row holding this token. Refresh tokens are opaque (no key /
+  // index), so we Scan with a FilterExpression and PAGINATE until a match
+  // or the table is exhausted.
+  //
+  // DO NOT add `Limit: 1` here. DynamoDB applies `Limit` to items *read
+  // before* the filter, not items *returned after* it — `Limit: 1` reads
+  // exactly one arbitrary row and matches only if that row happens to be
+  // the right one. It is silently correct with a single user row and
+  // silently broken at >=2: each refresh then succeeds only ~1/N of the
+  // time, so every additional linked user breaks every other user's link
+  // (invalid_grant -> Alexa drops the skill). This was the real outage.
+  // Pagination is O(table) per refresh — fine at beta scale (low hundreds
+  // of rows); a GSI on refreshToken/prevRefreshToken is the proper scale
+  // fix (see decisions.md) but is an optimisation, not a correctness need.
+  let user = null;
+  let ExclusiveStartKey;
+  do {
+    const page = await getDocClient().send(new ScanCommand({
+      TableName: tableNames.users,
+      FilterExpression: 'refreshToken = :rt OR prevRefreshToken = :rt',
+      ExpressionAttributeValues: { ':rt': refresh_token },
+      ExclusiveStartKey,
+    }));
+    if (page.Items && page.Items.length > 0) { user = page.Items[0]; break; }
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
   if (!user) {
     log.warn('oauth.refresh.not_found', { tokenPrefix: refresh_token.slice(0, 8) });
     return jsonResponse(400, { error: 'invalid_grant' });
