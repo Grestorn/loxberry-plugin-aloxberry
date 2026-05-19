@@ -1322,4 +1322,81 @@ handler keeps receiving the same `SetRangeValue` / `SetMode` /
 
 Refer to Amazon docs for the canonical semantics schema:
 https://developer.amazon.com/en-US/docs/alexa/device-apis/alexa-discovery.html
+
+## Deferred — AudioZoneV2 (Audioserver) favorites via user-declared map
+
+### Background / the limitation (investigated 2026-05-19)
+
+`AudioZone` (V1, the EOL Loxone MusicServer) publishes its zone favorites
+on the Miniserver as the `sourceList` text-state — the daemon parses it
+and exposes a Source `ModeController` (shipped). `AudioZoneV2` (the Loxone
+Audioserver) does **not**: the favorites are not in `LoxAPP3.json`, there
+is no favorites state/command on the Miniserver for V2, and the source
+picker is therefore (deliberately) V1-only — see
+`doc/user/*/devices.md` and `directive-router.js` Discovery comment.
+
+### Why every "read the favorites" path is closed
+
+Investigated and ruled out, all three grounded in sources:
+
+1. **Audioserver-direct, unauthenticated HTTP** (`audio/cfg/getroomfavs/
+   <playerid>` on the `mediaServer.host`, port 7091): reachable (HTTP 200)
+   but returns `{"error":"command not allowed when paired"}`. The
+   `audio/cfg/*` namespace is the **private Miniserver⇄Audioserver
+   perimeter**; a paired Audioserver only honours it for its
+   authenticated paired-Miniserver session.
+2. **Authenticated Audioserver client** (`secure/hello → authenticate →
+   init` then `audio/cfg/getroomfavs`): theoretically possible but the
+   handshake crypto is NOT pinned in mr-manuel's docs, and the command
+   may only ever answer the paired-Miniserver identity, not a second
+   client. Unproven; high effort; real risk of a dead end after the work.
+   Impersonating the paired Miniserver is RSA-keypair-bound and would
+   collide with the live Miniserver session — rejected outright.
+3. **Miniserver-proxy** (get our already-authenticated Miniserver WS to
+   relay/return the V2 list): does not exist. Confirmed by the Loxone V17
+   Structure File (no V2 favorites state), mr-manuel `miniserver-api.yaml`
+   ("relay is internal; clients cannot query Audioserver via the
+   Miniserver"), and `marcelschreiner/emulated-loxone-music-server` (the
+   Miniserver is the *consumer* of `audio/cfg/getroomfavs`; for V2 it does
+   not re-publish the result to its own clients).
+
+The official Loxone app shows V2 favorites by talking **directly** to the
+Audioserver with an App `Session-Token` — not via the Miniserver — and
+even the App perimeter has no documented favorites *list* command
+(`audio/<zone>/roomfav/play/<id>` is activate-only).
+
+### The chosen future approach — user-declared favorite map
+
+Since no API surfaces the names, let the only party that knows them (the
+user) declare them, and drive the **documented** `playZoneFav/<slot>`
+command we already implement:
+
+- Per-AudioZoneV2 device, add a small editable favorites table in the
+  Devices UI (`webfrontend` + `devices.json`): rows of `{ slot, name }`
+  (slot = the integer Loxone's app shows for the zone favorite, 1..N).
+- Daemon: when a V2 endpoint has a non-empty favorites map, advertise the
+  Source `ModeController` from that map (mirror the V1 `_resolveSourceList`
+  shape — `value = String(slot)`, friendlyName = user's name, both
+  locales). `SetMode` → existing `playZoneFav/<slot>` path (already in
+  `_handleSetMode`; today it rejects V2 — gate that on "has user map").
+- Robust to "favorites change over time": the user re-syncs the table
+  when they reorder favorites in Loxone (same maintenance contract as
+  re-discovery). Document this in `devices.md`.
+- Alternative worth weighing at implementation time: one Alexa endpoint
+  **per favorite** (scene/PowerController style) so "Alexa, turn on
+  <favorite>" dodges the music-NLU collision — bigger change, decide then.
+
+### Why not now / acceptance criteria
+
+- Deferred deliberately: ships nothing speculative, uses only documented
+  commands, no Audioserver auth. The disabled probe experiment was rolled
+  back (not kept as dead code); reintroduce a vetted Audioserver client
+  only if a future firmware or a proven OSS handshake reopens path 2.
+- Acceptance: a V2 zone with a user-declared map exposes named Source
+  modes; "Alexa, set the source on \<zone\> to \<name\>" fires
+  `playZoneFav/<slot>`; empty map → no Source mode (today's behavior);
+  V1 `AudioZone` behavior unchanged; docs updated.
+
+Reference for any future Audioserver-direct attempt (path 2):
+https://github.com/mr-manuel/Loxone_api_documentation
 (search for "semantics" — it's a top-level capability field).
