@@ -175,11 +175,19 @@ const TYPE_MAP = Object.freeze({
     audioVolumeStep: 5,
     allowedCategories: ['STREAMING_DEVICE', 'SPEAKER', 'MUSIC_SYSTEM', 'OTHER'],
   },
+  // AudioZoneV2 (Loxone Audioserver) has NO ModeController and NO
+  // ToggleController. Per the Loxone V17 Structure File its command set is
+  // volUp/volDown/volume/tts/playZoneFav/prev/next/play/Pause/bluetooth/
+  // presence — it supports neither `source/`/`repeat/` (ModeController) nor
+  // `shuffle` (ToggleController); those were V1 AudioZone/MusicServer
+  // commands. So neither must be selectable in the picker, nor advertised
+  // at Discovery (directive-router gates both the audio ModeController and
+  // ToggleController blocks to control.type === 'AudioZone').
   AudioZoneV2: {
     category: 'STREAMING_DEVICE',
     capabilities: [
       'PowerController', 'Speaker', 'PlaybackController',
-      'PlaybackStateReporter', 'ToggleController', 'ModeController',
+      'PlaybackStateReporter',
     ],
     audioVolumeStep: 5,
     allowedCategories: ['STREAMING_DEVICE', 'SPEAKER', 'MUSIC_SYSTEM', 'OTHER'],

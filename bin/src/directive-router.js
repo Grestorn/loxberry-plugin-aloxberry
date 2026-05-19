@@ -1123,7 +1123,11 @@ class DirectiveRouter {
         },
       });
     }
-    if (isAudio && endpoint.capabilities?.includes('ToggleController')) {
+    // ToggleController(Shuffle) is V1 `AudioZone` ONLY. AudioZoneV2
+    // (Audioserver) has no documented `shuffle` command (Loxone V17
+    // Structure File) — same situation as Repeat/Source. Narrow `isAudio`
+    // (V1+V2) to V1 so a stale/hand-edited devices.json can't produce one.
+    if (control?.type === 'AudioZone' && endpoint.capabilities?.includes('ToggleController')) {
       caps.push({
         type: 'AlexaInterface',
         interface: 'Alexa.ToggleController',
@@ -1144,7 +1148,12 @@ class DirectiveRouter {
         },
       });
     }
-    if (isAudio && endpoint.capabilities?.includes('ModeController')) {
+    // Audio ModeController (Repeat + Source) is V1 `AudioZone` ONLY.
+    // AudioZoneV2 (Audioserver) supports neither `repeat/` nor `source/`
+    // (Loxone V17 Structure File), so even a stale or hand-edited
+    // devices.json that still lists ModeController for a V2 zone must not
+    // produce one. `isAudio` (V1+V2) is deliberately narrowed to V1 here.
+    if (control?.type === 'AudioZone' && endpoint.capabilities?.includes('ModeController')) {
       // Repeat: three-mode picker. Mode values are the string keys, the
       // handler maps to Loxone's numeric `repeat/{n}` via REPEAT_BY_ALEXA.
       caps.push({

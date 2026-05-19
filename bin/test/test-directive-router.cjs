@@ -1728,12 +1728,12 @@ function newRouter(endpoints, opts) {
 
   // ---- AudioZone (V2) -----------------------------------------------------
 
-  await test('AudioZoneV2 Discovery advertises audio caps but NO Source mode', async () => {
-    // AudioZoneV2 (Music Server Gen.2 / Audioserver) has no favorites
-    // surface on the Miniserver — see directive-router.js Discovery
-    // comment + doc/user/*/devices.md. We must NOT advertise Source for
-    // it (a sourceList state is supplied here to prove it's ignored for
-    // V2 even when present).
+  await test('AudioZoneV2 Discovery advertises NO ModeController or ToggleController', async () => {
+    // AudioZoneV2 (Loxone Audioserver) supports neither `source/`/`repeat/`
+    // (ModeController) nor `shuffle` (ToggleController) — those were V1
+    // AudioZone commands. Discovery must advertise neither for V2, even if
+    // the device's capabilities still list them (stale/hand-edited
+    // devices.json) and a sourceList state is present.
     const env = audioEnv({ sourceListText: SAMPLE_SOURCE_LIST });
     const { router } = newRouter(env.endpoints, env);
     const resp = await router.handle({
@@ -1746,16 +1746,10 @@ function newRouter(endpoints, opts) {
     check(ifaceList.includes('Alexa.Speaker'),               'Speaker');
     check(ifaceList.includes('Alexa.PlaybackController'),    'PlaybackController');
     check(ifaceList.includes('Alexa.PlaybackStateReporter'), 'PlaybackStateReporter');
-    const toggles = caps.filter((c) => c.interface === 'Alexa.ToggleController');
-    eq(toggles.length, 1, 'one ToggleController (Shuffle)');
-    eq(toggles[0].instance, 'Aloxberry.Audio.Shuffle', 'Shuffle instance');
     const modes = caps.filter((c) => c.interface === 'Alexa.ModeController');
-    eq(modes.length, 1, 'one ModeController (Repeat only — no Source for V2)');
-    const repeatMode = modes.find((m) => m.instance === 'Aloxberry.Audio.Repeat');
-    const sourceMode = modes.find((m) => m.instance === 'Aloxberry.Audio.Source');
-    check(!!repeatMode, 'Repeat instance present');
-    check(!sourceMode, 'Source instance absent for AudioZoneV2');
-    eq(repeatMode?.configuration?.supportedModes?.length, 3, 'three repeat modes');
+    eq(modes.length, 0, 'no ModeController for AudioZoneV2 (no Repeat, no Source)');
+    const toggles = caps.filter((c) => c.interface === 'Alexa.ToggleController');
+    eq(toggles.length, 0, 'no ToggleController for AudioZoneV2 (no Shuffle)');
   });
 
   await test('AudioZone (V1) Discovery advertises Source modes from sourceList', async () => {

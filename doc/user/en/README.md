@@ -61,9 +61,11 @@ flowchart LR
 | 🔒 **Why it is safe to use** | [security.md](security.md) |
 | 🛠️ **Requirements & setup** | [setup.md](setup.md) |
 | 🔗 **Loxone ↔ Alexa device mapping** | [devices.md](devices.md) |
+| 🎵 **Audio players & music favorites** | [audio.md](audio.md) |
 
 German versions: [Sicherheit](../de/security.md) ·
-[Einrichtung](../de/setup.md) · [Geräte-Zuordnung](../de/devices.md)
+[Einrichtung](../de/setup.md) · [Geräte-Zuordnung](../de/devices.md) ·
+[Audio](../de/audio.md)
 
 > Looking for the technical/architecture documentation? See
 > [`doc/dev/`](../../dev/README.md) (English, for developers & self-hosters).

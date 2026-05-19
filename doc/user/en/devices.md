@@ -151,7 +151,10 @@ These appear only for the types they apply to:
   rather than show meaningless "Source 1–8" entries. Power, volume, mute and
   play/pause still work. Favorite selection for Audioserver zones may become
   possible later via a direct Audioserver integration; it is tracked as a known
-  limitation.
+  limitation. **There is a tested workaround** (a Loxone Radio block wired to
+  the Audio Player's `Fav` input, exposed as a scene) — see
+  **[audio.md](audio.md)**, which also covers why Alexa hijacks music
+  commands and how to choose voice-safe names.
 - Keep **friendly names unique** across rooms and easy to pronounce — that name
   *is* the voice command.
 

@@ -153,7 +153,10 @@ Diese erscheinen nur bei den Typen, für die sie gelten:
   „Source 1–8"-Einträge anzuzeigen. Power, Lautstärke, Stumm und Play/Pause
   funktionieren weiterhin. Eine Favoritenwahl für Audioserver-Zonen wird ggf.
   später über eine direkte Audioserver-Anbindung möglich; dies ist als bekannte
-  Einschränkung vermerkt.
+  Einschränkung vermerkt. **Es gibt einen erprobten Workaround** (ein
+  Loxone-Radio-Baustein am `Fav`-Eingang des Audio Players, als Szene
+  freigegeben) — siehe **[audio.md](audio.md)**; dort wird auch erklärt, warum
+  Alexa Musikbefehle kapert und wie man sprachsichere Namen wählt.
 - **Anzeigenamen** über Räume hinweg eindeutig und gut aussprechbar halten —
   dieser Name *ist* der Sprachbefehl.
 
