@@ -75,6 +75,24 @@ mis‑routes directives silently — worse than not booting. Missing required en
 a DDB round‑trip; `userId` rides in the signed payload. DDB is touched only to
 load `skillSecret` and route.
 
+**OAuth refresh tokens are NOT rotated — deliberately.** The `refresh_token`
+grant is idempotent: it validates the token, mints a fresh access token, and
+returns the *same* refresh token. Rotation was tried and removed because it
+caused **silent, permanent account‑link death**: access tokens have a ~1 h
+TTL, so Alexa refreshes each linked account ~hourly; with rotation a single
+lost or slow rotation HTTP response left Alexa holding a token the backend had
+already rotated past, the next refresh failed `invalid_grant`, and Alexa then
+stopped sending *all* directives ("device not responding") until the user
+manually re‑linked — recurring on every unlucky cycle. For an Alexa Smart Home
+skill (one known client; the token is bound to a single user row) rotation's
+marginal benefit does not justify that failure mode. The legacy
+`prevRefreshToken` field is still *accepted* on lookup (so in‑flight tokens
+survive the deploy and converge onto the canonical token) but is no longer
+written. **Do not "harden" this by re‑adding rotation** without first solving
+the lost‑response desync — that is exactly the breakage this note exists to
+prevent. Successful refreshes log `oauth.refresh.ok` at INFO as the
+per‑account hourly liveness heartbeat.
+
 **SSM SecureStrings, cached across warm invocations.** Secrets out of code and
 env; one KMS decrypt per cold start.
 

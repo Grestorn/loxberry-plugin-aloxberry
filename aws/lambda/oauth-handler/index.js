@@ -5,7 +5,6 @@ const { Buffer } = require('buffer');
 const {
   PutCommand,
   GetCommand,
-  UpdateCommand,
   DeleteCommand,
   ScanCommand,
 } = require('@aws-sdk/lib-dynamodb');
@@ -89,14 +88,6 @@ const ALLOWED_REDIRECT_HOSTS = new Set([
 // Access tokens have a 1h TTL, expressed in seconds for the OAuth response.
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
 
-// Refresh-token rotation grace window. After we rotate the user's refresh
-// token, the OLD one stays valid for this long so a concurrent / retried
-// request from Alexa with the just-rotated token still succeeds. Without
-// this, Alexa's natural retry/concurrency patterns can yank one of two
-// near-simultaneous refresh requests into `invalid_grant`, which makes
-// Alexa mark the skill broken and demand user re-link. 5 minutes covers
-// the realistic retry window without keeping leaked tokens alive long.
-const REFRESH_GRACE_MS = 5 * 60 * 1000;
 
 // ---- Beta connection cap ----------------------------------------------------
 //
@@ -517,10 +508,28 @@ async function exchangeRefreshToken(form) {
   const { refresh_token } = form;
   if (!refresh_token) return jsonResponse(400, { error: 'invalid_request' });
 
-  // Look up the user. Match against EITHER the current refreshToken OR a
-  // recently-rotated prevRefreshToken (within the grace window). Refresh
-  // tokens are opaque, so we scan; a GSI on each field is the proper Phase-4
-  // optimization.
+  // NON-ROTATING by design.
+  //
+  // Refresh-token rotation was causing silent, permanent account-link
+  // death. Access tokens have a 1h TTL, so Alexa refreshes each linked
+  // account ~hourly. With rotation, a single lost or slow rotation HTTP
+  // response left Alexa still holding a token the backend had already
+  // rotated past; the next hourly refresh (well outside any short grace
+  // window) then failed with invalid_grant, Alexa treated the link as
+  // dead, stopped sending ALL directives ("device not responding"), and
+  // only a manual re-link recovered it — until the next unlucky cycle.
+  // For an Alexa Smart Home skill (a single, known client; the token is
+  // bound to one user row) rotation's marginal benefit does not justify
+  // that failure mode. So: validate the token, mint a fresh ACCESS token,
+  // and return the SAME refresh token unchanged. Idempotent — retries and
+  // concurrent refreshes can no longer desync.
+  //
+  // We still accept a match on the legacy `prevRefreshToken` so any token
+  // Alexa is still holding from a pre-fix rotation keeps working across
+  // this deploy; we always return the canonical current `refreshToken`,
+  // so Alexa converges back onto the stable token on its next refresh.
+  // The legacy prev* fields are simply no longer written and decay
+  // harmlessly (the users table has no TTL on them; they're inert).
   const scan = await getDocClient().send(new ScanCommand({
     TableName: tableNames.users,
     FilterExpression: 'refreshToken = :rt OR prevRefreshToken = :rt',
@@ -533,93 +542,21 @@ async function exchangeRefreshToken(form) {
     return jsonResponse(400, { error: 'invalid_grant' });
   }
 
-  const now = Date.now();
   const matchedPrev = (user.prevRefreshToken === refresh_token);
-
-  // Grace path: the submitted token matches the JUST-ROTATED token. Don't
-  // rotate again — return the CURRENT refresh token + a fresh access token.
-  // Makes Alexa's retry / concurrent refresh attempts idempotent.
-  if (matchedPrev) {
-    const expiresAt = Date.parse(user.prevRefreshExpiresAt || '');
-    if (!Number.isFinite(expiresAt) || expiresAt < now) {
-      log.warn('oauth.refresh.prev_expired', {
-        userId: user.userId,
-        prevExpiresAt: user.prevRefreshExpiresAt,
-      });
-      return jsonResponse(400, { error: 'invalid_grant' });
-    }
-    // DEBUG: token refresh fires periodically per user (~hourly per Alexa).
-    // At scale this is high-volume but successful refreshes carry no operator
-    // signal — only refresh failures (logged at WARN above) need attention.
-    log.debug('oauth.refresh.grace_served', { userId: user.userId });
-    const accessToken = await signAccessToken({ userId: user.userId });
-    return jsonResponse(200, {
-      access_token:  accessToken,
-      token_type:    'Bearer',
-      expires_in:    ACCESS_TOKEN_TTL_SECONDS,
-      refresh_token: user.refreshToken,   // already-rotated current value
-    });
-  }
-
-  // Primary path: rotate the token. Move current → prev (with TTL), assign
-  // a fresh token. ConditionExpression guards against a concurrent rotation.
-  const newRefresh = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
-  const prevExpiresAt = new Date(now + REFRESH_GRACE_MS).toISOString();
-  try {
-    await getDocClient().send(new UpdateCommand({
-      TableName: tableNames.users,
-      Key: { userId: user.userId },
-      UpdateExpression:
-        'SET refreshToken = :new, ' +
-        '    prevRefreshToken = :old, ' +
-        '    prevRefreshExpiresAt = :exp, ' +
-        '    updatedAt = :now',
-      ConditionExpression: 'refreshToken = :old',
-      ExpressionAttributeValues: {
-        ':new': newRefresh,
-        ':old': refresh_token,
-        ':exp': prevExpiresAt,
-        ':now': new Date(now).toISOString(),
-      },
-    }));
-  } catch (err) {
-    if (err.name === 'ConditionalCheckFailedException') {
-      // Another request rotated first. The current token field has moved
-      // forward; ours is now (hopefully) in prevRefreshToken. Re-fetch and
-      // serve via the grace path. This is the racing-Alexa-refresh case.
-      const refetch = await getDocClient().send(new GetCommand({
-        TableName: tableNames.users,
-        Key: { userId: user.userId },
-      }));
-      const fresh = refetch.Item;
-      if (!fresh || fresh.prevRefreshToken !== refresh_token) {
-        log.warn('oauth.refresh.cce_no_prev_match', { userId: user.userId });
-        return jsonResponse(400, { error: 'invalid_grant' });
-      }
-      const expiresAt = Date.parse(fresh.prevRefreshExpiresAt || '');
-      if (!Number.isFinite(expiresAt) || expiresAt < now) {
-        log.warn('oauth.refresh.cce_prev_expired', { userId: user.userId });
-        return jsonResponse(400, { error: 'invalid_grant' });
-      }
-      log.debug('oauth.refresh.race_resolved', { userId: user.userId });
-      const accessToken = await signAccessToken({ userId: user.userId });
-      return jsonResponse(200, {
-        access_token:  accessToken,
-        token_type:    'Bearer',
-        expires_in:    ACCESS_TOKEN_TTL_SECONDS,
-        refresh_token: fresh.refreshToken,
-      });
-    }
-    throw err;
-  }
-
-  log.debug('oauth.refresh.rotated', { userId: user.userId });
   const accessToken = await signAccessToken({ userId: user.userId });
+
+  // INFO heartbeat: one line per successful refresh. Alexa refreshes each
+  // linked account ~hourly, so this is the operator's "this link is alive"
+  // pulse — a per-user gap is the earliest signal of a broken link, long
+  // before the user notices "device not responding". Logging success only
+  // at DEBUG is exactly why the rotation outage was invisible in prod.
+  log.info('oauth.refresh.ok', { userId: user.userId, matchedPrev });
+
   return jsonResponse(200, {
     access_token:  accessToken,
     token_type:    'Bearer',
     expires_in:    ACCESS_TOKEN_TTL_SECONDS,
-    refresh_token: newRefresh,
+    refresh_token: user.refreshToken,
   });
 }
 

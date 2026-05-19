@@ -36,8 +36,14 @@ parsing).
   (`GET /pair?code=…`), gets `{userId, skillSecret}`, writes the `users` row,
   redirects back to Alexa with an auth code.
 - `POST /token` — exchanges the auth code for a **JWT access token**
-  (payload: `userId`, signed with the SSM JWT secret) + an opaque refresh
-  token.
+  (payload: `userId`, signed with the SSM JWT secret, ~1 h TTL) + an opaque,
+  **non‑rotating** refresh token. The `refresh_token` grant is idempotent:
+  validate the token → mint a fresh access token → return the **same** refresh
+  token. Rotation was deliberately removed (it caused silent account‑link
+  death — see [decisions.md](decisions.md)). Each successful refresh emits an
+  `oauth.refresh.ok` **INFO** line: Alexa refreshes every linked account
+  ~hourly, so that line is the per‑account liveness heartbeat — a gap is the
+  earliest signal of a broken link.
 - `POST /event` — receives signed ChangeReports from the bridge, verifies the
   HMAC against the user's `skillSecret`, fans the report out to every linked
   Alexa account using each account's LWA token.

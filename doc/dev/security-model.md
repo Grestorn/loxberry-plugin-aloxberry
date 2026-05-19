@@ -10,6 +10,7 @@
 | `skillSecret` | 32 random bytes → hex (64 chars) | **Yes (HMAC key)** | plugin + Lambda/DDB only | "kill all pairings" |
 | pair code | 10 chars from a 32‑char alphabet (50 bits) | Transient | plugin → bridge (TTL) | one‑shot, expires 10 min |
 | JWT access token | `jose`‑signed, payload `userId` | Bearer | Alexa ↔ Lambda | ~1 h expiry |
+| OAuth refresh token | 64 hex chars (2×UUIDv4) | Bearer (long‑lived) | Alexa ↔ Lambda/DDB | **non‑rotating by design** — [decisions.md](decisions.md); cleared by "kill all pairings" |
 | Loxone token | Loxone JWT (token handshake) | Yes | plugin only | refresh / re‑auth |
 
 `userId` being non‑secret is deliberate: it is only a routing selector. Stealing
