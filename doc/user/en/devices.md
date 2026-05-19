@@ -14,7 +14,7 @@ consequences of each choice.
 Loxone uses **two different naming schemes**, and this trips everyone up:
 
 - The **function block** name you see in **Loxone Config** / the Loxone app —
-  e.g. *Audio Player*, *Automatic Shading*, *Intelligent Room Controller*.
+  e.g. *Music Server Zone*, *Automatic Shading*, *Intelligent Room Controller*.
 - The **technical type** the Miniserver reports over its API — e.g.
   `AudioZone`, `Jalousie`, `IRoomControllerV2`. **This is the value shown in
   the plugin's *Devices → Type* filter.**
@@ -48,8 +48,8 @@ device in the *Devices* tab.
 | **Intelligent Room Controller** — `IRoomControllerV2` | Thermostat | Thermostat + Temperature sensor | "set *name* to 21 degrees", "what's the temperature of *name*?" |
 | **AC Unit Controller** (air conditioning) — `ACControl` | Air conditioner | Power, Thermostat, Temperature sensor, Mode (fan) | Set temperature, heat/cool/auto, fan speed. |
 | **Room Ventilation Controller** — `Ventilation` | Fan | Power, Range (speed), Mode (+ optional Temp/Humidity) | On/off, speed, mode (timed override). |
-| **Audio Player** — `AudioZone` | Streaming device | Power, Speaker, Playback, Playback state, Toggle, Mode (source) | Volume, mute, play/pause, pick a source. |
-| **Music Server Zone** — `AudioZoneV2` | Streaming device | Power, Speaker, Playback, Playback state, Toggle, Mode (source) | Volume, mute, play/pause, pick a source. |
+| **Music Server Zone** (Loxone MusicServer, EOL) — `AudioZone` | Streaming device | Power, Speaker, Playback, Playback state, Toggle, Mode (source) | Volume, mute, play/pause, pick a zone favorite by name. |
+| **Audio Player** (Loxone Audioserver) — `AudioZoneV2` | Streaming device | Power, Speaker, Playback, Playback state, Toggle | Volume, mute, play/pause. **No favorite selection** — see note below. |
 | **Presence** (presence/motion sensor) — `PresenceDetector` | Motion sensor | Motion *(read‑only)* | Status + Routine trigger. |
 | **Door and Window Monitor** — `WindowMonitor` | Contact sensor | Contact *(read‑only)* | "Any window open?" + Routine trigger. |
 | **Status — digital** (status / virtual status, on/off) — `InfoOnlyDigital` | Contact sensor | Contact / Motion / Mode *(read‑only)* | Read a boolean state; trigger Routines. |
@@ -134,8 +134,24 @@ These appear only for the types they apply to:
   ventilation returns to its automatic (humidity/CO₂/presence) logic. This is
   by design, not a bug.
 - **Audio Playback**: Alexa often routes "play/pause" to its own music service
-  rather than the skill. Volume, mute and source selection are the reliable
-  voice operations for Loxone audio zones.
+  rather than the skill. Volume and mute are the reliable voice operations for
+  Loxone audio zones.
+- **Audioserver (AudioZoneV2) favorites are not available (Loxone API
+  limitation)**: Loxone has had two audio products. The older **MusicServer**
+  (now end-of-life, built on Logitech's likewise-discontinued SqueezeBox
+  technology) is the **Music Server Zone** function block — API type
+  `AudioZone` — and it *does* expose its zone favorites, so you can say *"set
+  the source on \<zone\> to \<favorite name\>"*. Its successor, the
+  Loxone-built **Audioserver** (the **Audio Player** function
+  block — API type `AudioZoneV2`), does **not**: the Miniserver
+  simply does not publish the favorite list for Audioserver zones (per the
+  official Loxone Structure File, the audio-server favorites API is "not
+  publicly available"). The plugin has no way to learn the favorite names, so
+  it deliberately does **not** offer a source picker for `AudioZoneV2` zones
+  rather than show meaningless "Source 1–8" entries. Power, volume, mute and
+  play/pause still work. Favorite selection for Audioserver zones may become
+  possible later via a direct Audioserver integration; it is tracked as a known
+  limitation.
 - Keep **friendly names unique** across rooms and easy to pronounce — that name
   *is* the voice command.
 

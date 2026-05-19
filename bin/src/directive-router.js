@@ -1184,12 +1184,26 @@ class DirectiveRouter {
         },
       });
 
-      // Source: dynamic. Reads sourceList from the state cache at
-      // Discovery time; falls back to generic numbered slots when the
-      // cache hasn't received the state yet. Either way, each mode's
-      // `value` is the numeric slot — the handler maps to source/{slot}
-      // (V1) or playZoneFav/{slot} (V2) at directive time.
-      const sources = this._resolveSourceList(endpoint);
+      // Source: V1 AudioZone ONLY.
+      //
+      // AudioZone = Loxone MusicServer (EOL, Logitech-SqueezeBox-based);
+      // AudioZoneV2 = its Loxone-built successor, the Audioserver.
+      //
+      // The Loxone V17 Structure File exposes zone favorites via the
+      // `sourceList` text-state on AudioZone (MusicServer, p.35). The
+      // Audioserver's AudioZoneV2 has NO favorites surface on the
+      // Miniserver at all — its documented state set contains no
+      // `sourceList`/`source` (Structure File pp.39-40), and the
+      // audio-server API that actually holds the favorites is explicitly
+      // "not publicly available" (Structure File p.14). Advertising the
+      // generic numbered fallback for V2 is worse than nothing: Alexa
+      // would show fake "Source 1..8" modes that map to unknown
+      // favorites. So we do not expose Source for V2 — a future
+      // Audioserver-direct integration is tracked in
+      // doc/user/*/devices.md ("Audioserver (AudioZoneV2) favorites").
+      const sources = (control.type === 'AudioZone')
+        ? this._resolveSourceList(endpoint)
+        : [];
       if (sources.length > 0) {
         caps.push({
           type: 'AlexaInterface',
@@ -1720,17 +1734,24 @@ class DirectiveRouter {
       }
       command = `repeat/${numeric}`;
     } else if (control && AUDIO_TYPES.has(control.type) && h.instance === MODE_INSTANCE_SOURCE) {
+      // Source is advertised for V1 AudioZone only (see Discovery). V2 has
+      // no favorites surface on the Miniserver, so we never emit the mode
+      // for it — reject defensively in case a stale Alexa endpoint cache
+      // still sends one rather than firing a blind playZoneFav/<n>.
+      if (control.type !== 'AudioZone') {
+        return errorResponse(h, 'INVALID_VALUE',
+          'Source selection is not available for this audio zone '
+          + '(AudioZoneV2 favorites are not exposed by the Loxone API)');
+      }
       const slot = Number.parseInt(requestedMode, 10);
       if (!Number.isFinite(slot)) {
         return errorResponse(h, 'INVALID_VALUE', `Unsupported source slot: ${requestedMode}`);
       }
-      // V1 uses source/<slot>; V2 uses playZoneFav/<slot>. The slot itself
-      // comes from the same sourceList JSON parse on both sides — Loxone's
-      // V1 source/<n> and V2 playZoneFav/<id> reference the same favorite
-      // index on the Music Server.
-      command = (control.type === 'AudioZoneV2')
-        ? `playZoneFav/${slot}`
-        : `source/${slot}`;
+      // V1 AudioZone: source/<slot>, where <slot> is the favorite's stable
+      // per-zone slot id from the sourceList `getroomfavs_result.items[]`
+      // (NOT a list position — slots are non-contiguous; Structure File
+      // p.35).
+      command = `source/${slot}`;
       // Debug: the exact mapping Alexa-mode -> Loxone command. `expectedName`
       // is the favorite name we advertised for this slot at Discovery; if the
       // zone plays something else, the slot/id correspondence is wrong (slot

@@ -14,7 +14,7 @@ abgebildet wird und welche Folgen jede Wahl hat.
 Loxone verwendet **zwei verschiedene Namensschemata** — das verwirrt jeden:
 
 - Der **Funktionsbaustein**-Name, den du in **Loxone Config** / der Loxone-App
-  siehst — z. B. *Audio Player*, *Automatikbeschattung*, *Intelligente
+  siehst — z. B. *Music Server Zone*, *Automatikbeschattung*, *Intelligente
   Raumregelung*.
 - Der **technische Typ**, den der Miniserver über seine API meldet — z. B.
   `AudioZone`, `Jalousie`, `IRoomControllerV2`. **Dieser Wert wird im Plugin
@@ -49,8 +49,8 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 | **Intelligente Raumregelung** — `IRoomControllerV2` | Thermostat | Thermostat + Temperatursensor | „stelle *Name* auf 21 Grad", „wie ist die Temperatur von *Name*?" |
 | **Klimaanlagensteuerung** — `ACControl` | Klimaanlage | Power, Thermostat, Temperatursensor, Modus (Lüfter) | Temperatur, Heizen/Kühlen/Auto, Lüfterstufe. |
 | **Raumlüftungssteuerung** — `Ventilation` | Lüfter | Power, Bereich (Stufe), Modus (+ optional Temp/Feuchte) | Ein/Aus, Stufe, Modus (zeitlich begrenzt). |
-| **Audio Player** — `AudioZone` | Streaming-Gerät | Power, Lautsprecher, Wiedergabe, Wiedergabestatus, Schalter, Modus (Quelle) | Lautstärke, Stumm, Play/Pause, Quelle wählen. |
-| **Music Server Zone** — `AudioZoneV2` | Streaming-Gerät | Power, Lautsprecher, Wiedergabe, Wiedergabestatus, Schalter, Modus (Quelle) | Lautstärke, Stumm, Play/Pause, Quelle wählen. |
+| **Music Server Zone** (Loxone MusicServer, abgekündigt) — `AudioZone` | Streaming-Gerät | Power, Lautsprecher, Wiedergabe, Wiedergabestatus, Schalter, Modus (Quelle) | Lautstärke, Stumm, Play/Pause, Zonenfavorit per Name wählen. |
+| **Audio Player** (Loxone Audioserver) — `AudioZoneV2` | Streaming-Gerät | Power, Lautsprecher, Wiedergabe, Wiedergabestatus, Schalter | Lautstärke, Stumm, Play/Pause. **Keine Favoritenwahl** — siehe Hinweis unten. |
 | **Präsenz** (Präsenz-/Bewegungsmelder) — `PresenceDetector` | Bewegungssensor | Bewegung *(nur lesend)* | Status + Routinen-Auslöser. |
 | **Fenster- und Türüberwachung** — `WindowMonitor` | Kontaktsensor | Kontakt *(nur lesend)* | „Ist ein Fenster offen?" + Routinen-Auslöser. |
 | **Status – digital** (Status / Virtueller Status, Ein/Aus) — `InfoOnlyDigital` | Kontaktsensor | Kontakt / Bewegung / Modus *(nur lesend)* | Booleschen Zustand lesen; Routinen auslösen. |
@@ -135,8 +135,25 @@ Diese erscheinen nur bei den Typen, für die sie gelten:
   *Dauer*). Danach kehrt die Lüftung in die Automatik (Feuchte/CO₂/Präsenz)
   zurück. Das ist so gewollt, kein Fehler.
 - **Audio-Wiedergabe**: Alexa leitet „Play/Pause" oft an den eigenen
-  Musikdienst statt an den Skill. Verlässlich per Sprache sind Lautstärke,
-  Stummschaltung und Quellenwahl für Loxone-Audiozonen.
+  Musikdienst statt an den Skill. Verlässlich per Sprache sind Lautstärke
+  und Stummschaltung für Loxone-Audiozonen.
+- **Audioserver-Favoriten (AudioZoneV2) nicht verfügbar
+  (Loxone-API-Einschränkung)**: Loxone hatte zwei Audio-Produkte. Der ältere
+  **MusicServer** (mittlerweile abgekündigt, basierend auf Logitechs ebenfalls
+  eingestellter SqueezeBox-Technik) ist der Funktionsbaustein **Music Server
+  Zone** — API-Typ `AudioZone` — und stellt seine Zonenfavoriten **bereit**;
+  du kannst also sagen *„stelle die Quelle von \<Zone\> auf \<Favoritname\>"*.
+  Sein von Loxone selbst entwickelter Nachfolger, der **Audioserver** (der
+  Funktionsbaustein **Audio Player** — API-Typ `AudioZoneV2`),
+  kann das **nicht**: Der Miniserver veröffentlicht die
+  Favoritenliste für Audioserver-Zonen schlicht nicht (laut offizieller
+  Loxone-Strukturdatei ist die Audioserver-Favoriten-API „nicht öffentlich
+  verfügbar"). Das Plugin kann die Favoritennamen nicht ermitteln und bietet für
+  `AudioZoneV2`-Zonen daher bewusst **keine** Quellenauswahl an, statt sinnlose
+  „Source 1–8"-Einträge anzuzeigen. Power, Lautstärke, Stumm und Play/Pause
+  funktionieren weiterhin. Eine Favoritenwahl für Audioserver-Zonen wird ggf.
+  später über eine direkte Audioserver-Anbindung möglich; dies ist als bekannte
+  Einschränkung vermerkt.
 - **Anzeigenamen** über Räume hinweg eindeutig und gut aussprechbar halten —
   dieser Name *ist* der Sprachbefehl.
 

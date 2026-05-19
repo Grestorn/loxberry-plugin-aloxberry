@@ -1728,7 +1728,12 @@ function newRouter(endpoints, opts) {
 
   // ---- AudioZone (V2) -----------------------------------------------------
 
-  await test('AudioZoneV2 Discovery advertises full audio capability set', async () => {
+  await test('AudioZoneV2 Discovery advertises audio caps but NO Source mode', async () => {
+    // AudioZoneV2 (Music Server Gen.2 / Audioserver) has no favorites
+    // surface on the Miniserver — see directive-router.js Discovery
+    // comment + doc/user/*/devices.md. We must NOT advertise Source for
+    // it (a sourceList state is supplied here to prove it's ignored for
+    // V2 even when present).
     const env = audioEnv({ sourceListText: SAMPLE_SOURCE_LIST });
     const { router } = newRouter(env.endpoints, env);
     const resp = await router.handle({
@@ -1745,16 +1750,33 @@ function newRouter(endpoints, opts) {
     eq(toggles.length, 1, 'one ToggleController (Shuffle)');
     eq(toggles[0].instance, 'Aloxberry.Audio.Shuffle', 'Shuffle instance');
     const modes = caps.filter((c) => c.interface === 'Alexa.ModeController');
-    eq(modes.length, 2, 'two ModeControllers (Repeat, Source)');
+    eq(modes.length, 1, 'one ModeController (Repeat only — no Source for V2)');
     const repeatMode = modes.find((m) => m.instance === 'Aloxberry.Audio.Repeat');
     const sourceMode = modes.find((m) => m.instance === 'Aloxberry.Audio.Source');
     check(!!repeatMode, 'Repeat instance present');
-    check(!!sourceMode, 'Source instance present');
+    check(!sourceMode, 'Source instance absent for AudioZoneV2');
     eq(repeatMode?.configuration?.supportedModes?.length, 3, 'three repeat modes');
+  });
+
+  await test('AudioZone (V1) Discovery advertises Source modes from sourceList', async () => {
+    const env = audioEnv({ version: 'AudioZone', sourceListText: SAMPLE_SOURCE_LIST });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'ma1v1' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const caps = resp?.event?.payload?.endpoints?.[0]?.capabilities || [];
+    const modes = caps.filter((c) => c.interface === 'Alexa.ModeController');
+    eq(modes.length, 2, 'two ModeControllers (Repeat, Source) for V1');
+    const sourceMode = modes.find((m) => m.instance === 'Aloxberry.Audio.Source');
+    check(!!sourceMode, 'Source instance present for V1');
     const sourceLabels = (sourceMode?.configuration?.supportedModes || [])
       .map((m) => m.modeResources?.friendlyNames?.[0]?.value?.text);
-    check(sourceLabels.includes('Led Zeppelin'),            'source name from sourceList');
-    check(sourceLabels.includes('Dein Mix der Woche'),      'second source from sourceList');
+    check(sourceLabels.includes('Led Zeppelin'),       'source name from sourceList');
+    check(sourceLabels.includes('Dein Mix der Woche'), 'second source from sourceList');
+    // Non-contiguous slots from the sample (1 and 7) become the mode values.
+    const values = (sourceMode?.configuration?.supportedModes || []).map((m) => m.value);
+    check(values.includes('1') && values.includes('7'), 'slot ids (non-contiguous) used as mode values');
   });
 
   await test('AudioZone Discovery falls back to numbered sources on cold cache', async () => {
@@ -1935,17 +1957,20 @@ function newRouter(endpoints, opts) {
     eq(mock.calls[0].command, 'repeat/3', "'one' → repeat/3");
   });
 
-  await test('SetMode Source on AudioZoneV2 → playZoneFav/<slot>', async () => {
+  await test('SetMode Source on AudioZoneV2 → rejected (no favorites API)', async () => {
+    // V2 never advertises Source; a stale Alexa endpoint cache that still
+    // sends one must be rejected, not blindly fired as playZoneFav/<n>.
     const env = audioEnv({ version: 'AudioZoneV2' });
     const { router, mock } = newRouter(env.endpoints, env);
-    await router.handle({
+    const resp = await router.handle({
       header: { namespace: 'Alexa.ModeController', name: 'SetMode',
                 instance: 'Aloxberry.Audio.Source',
                 payloadVersion: '3', messageId: 'ma-s1' },
       endpoint: { endpointId: 'alexa-aud-uuid' },
       payload: { mode: '7' },
     });
-    eq(mock.calls[0].command, 'playZoneFav/7', 'V2 → playZoneFav');
+    eq(resp?.event?.payload?.type, 'INVALID_VALUE', 'V2 Source rejected with INVALID_VALUE');
+    eq(mock.calls.length, 0, 'no Loxone command sent for rejected V2 Source');
   });
 
   await test('SetMode Source on AudioZone (V1) → source/<slot>', async () => {
