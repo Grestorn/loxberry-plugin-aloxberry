@@ -15,11 +15,11 @@ aws/
 ├── infrastructure/
 │   └── template.yaml          # AWS SAM template — declares all resources
 ├── scripts/
-│   ├── bootstrap.{ps1,sh}     # Legacy: creates JWT SSM SecureString only.
-│   │                          # deploy-prod handles this automatically now.
 │   ├── deploy-prod.{ps1,sh}   # Build + deploy + ensure SSM secrets exist
 │   ├── ddb-list.{ps1,sh}      # Read-only DDB inspection (secrets redacted)
-│   └── ddb-clear.{ps1,sh}     # DDB wipe (dry-run default + typed confirmation)
+│   ├── ddb-clear.{ps1,sh}     # DDB wipe (dry-run default + typed confirmation)
+│   ├── beta-limit.{ps1,sh}    # Query/raise the beta connection cap + show usage
+│   └── tail-aws.{ps1,sh}      # Tail both Lambdas' CloudWatch logs (live or dump)
 └── samconfig.toml.example     # Template for sam deploy parameters
 ```
 
@@ -44,6 +44,7 @@ stored in SSM (`/loxberry-alexa/bridge-dispatch-secret`).
 |--------------------------|----------------------------------------------------------------------------------------|
 | `UsersTable` (DynamoDB)  | One row per linked Loxberry. Stores `bridgeUserId`, HMAC `skillSecret`, refresh token. |
 | `AuthCodesTable` (DDB)   | Short-lived OAuth auth codes (10-min DynamoDB TTL).                                    |
+| `ConfigTable` (DDB)      | Generic key/value config. Holds `betaMaxConnections` (the beta connection cap enforced by the OAuth handler at link time; seeded from the `BetaMaxConnectionsDefault` SAM parameter until set). Inspect/raise via `beta-limit.{ps1,sh}`. |
 | `OAuthApi` (HTTP API GW) | `/authorize` (GET, POST) and `/token` (POST) routes.                                   |
 | `OAuthHandlerFunction`   | OAuth2 Authorization Code Grant server.                                                |
 | `AlexaHandlerFunction`   | Alexa Smart Home directive dispatcher (forwards to user's Loxberry).                   |
@@ -188,9 +189,8 @@ re-print it later:
 ./aws/scripts/deploy-prod.sh --show-bridge-secret
 ```
 
-(There's also a legacy `bootstrap.{ps1,sh}` that creates only the JWT
-secret. It's kept for backwards compatibility but is no longer needed —
-`deploy-prod` is idempotent and handles both secrets.)
+`deploy-prod` is idempotent — it (re)creates either secret only if
+missing, so it is safe to run on every deploy.
 
 The other two SSM SecureStrings (`/loxberry-alexa/lwa-client-id` and
 `/loxberry-alexa/lwa-client-secret`) are populated manually — see
@@ -437,6 +437,52 @@ name, so you can't satisfy it with reflex.
 Wiping the users table forces every linked Alexa user to re-link the
 skill through the OAuth flow. Wiping auth-codes is harmless — they
 self-expire within 10 minutes anyway.
+
+### Beta connection cap
+
+During the public beta the OAuth handler caps how many **distinct
+LoxBerry installations** (distinct `bridgeUserId` values) may be linked.
+The live limit lives in `ConfigTable` under key `betaMaxConnections`;
+until that item exists the Lambda uses the `BetaMaxConnectionsDefault`
+SAM parameter (default 100) and seeds the item on the next link attempt.
+
+```bash
+./aws/scripts/beta-limit.sh                # show limit + current usage
+./aws/scripts/beta-limit.sh --set 250      # raise the cap to 250
+./aws/scripts/beta-limit.sh --stage dev    # dev tables
+```
+```powershell
+.\aws\scripts\beta-limit.ps1
+.\aws\scripts\beta-limit.ps1 -Set 250
+.\aws\scripts\beta-limit.ps1 -Stage dev
+```
+
+"Usage" counts distinct `bridgeUserId`s (one physical LoxBerry = one
+slot regardless of how many Alexa accounts it linked) — exactly what the
+handler enforces at link time.
+
+### Tail the Lambda logs
+
+`tail-aws.{ps1,sh}` streams both functions' CloudWatch logs, interleaved
+with `[alexa]` / `[oauth]` line prefixes, instead of typing the raw
+`aws logs tail` invocations used elsewhere in this doc.
+
+```bash
+./aws/scripts/tail-aws.sh                       # both, last 1m + live
+./aws/scripts/tail-aws.sh --function alexa      # alexa-handler only
+./aws/scripts/tail-aws.sh --function oauth      # oauth-handler only
+./aws/scripts/tail-aws.sh --since 10m           # last 10 min first
+./aws/scripts/tail-aws.sh --filter "ERROR"      # CloudWatch filter pattern
+./aws/scripts/tail-aws.sh --no-follow --since 1h  # dump + exit (post-mortem)
+```
+```powershell
+.\aws\scripts\tail-aws.ps1
+.\aws\scripts\tail-aws.ps1 -Function alexa
+.\aws\scripts\tail-aws.ps1 -NoFollow -Since 1h
+```
+
+`--no-follow` has no buffering latency; prefer it for post-mortem
+diagnostics (live-tail mode inherits aws-cli's block-buffered stdout).
 
 ## Build details
 

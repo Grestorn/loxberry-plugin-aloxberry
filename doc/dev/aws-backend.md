@@ -20,6 +20,7 @@ Deployed via **AWS SAM** (`aws/infrastructure/template.yaml`):
 | `alexa-handler` Lambda | Receives every Smart Home directive, authenticates it, dispatches via the bridge. |
 | DynamoDB `users` | `userId → { skillSecret, refreshToken, LWA tokens, … }`. |
 | DynamoDB `authcodes` | Short‑lived OAuth auth codes (TTL 600 s). |
+| DynamoDB `config` | Generic key/value; holds `betaMaxConnections`, the beta cap on distinct linked LoxBerry installs the OAuth handler enforces at link time. |
 | API Gateway (HTTP API) | Public OAuth endpoints (`/authorize`, `/token`, `/event`). |
 | SSM SecureStrings | JWT signing secret, bridge dispatch secret, LWA client id/secret. |
 | `@aloxberry/shared` | Shared layer: DDB client, JWT (`jose`), HMAC sign/verify, LWA token exchange. |

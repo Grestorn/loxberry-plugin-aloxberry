@@ -54,7 +54,7 @@ A single long‑lived Node.js process. `index.js` boot sequence:
 | `state-cache.js`, `state-reporter.js` | Track Loxone state; build/sign Alexa ChangeReports for proactive updates. |
 | `pair-code.js`, `pairings.js` | Generate one‑shot pair codes; track observed pairings for the UI. |
 | `loxone-command.js` | Encodes Loxone command URLs (`jdev/sps/io/…`) per control type. |
-| `log.js` | Structured JSON logger with child loggers per component. |
+| `log.js` | Plain-text logger using LoxBerry's native log-level taxonomy (alert…debug); pino-compatible call surface with child loggers per component. Level driven by the LoxBerry log-level UI. |
 
 ### Loxone communication
 
