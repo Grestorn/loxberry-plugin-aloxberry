@@ -38,6 +38,7 @@ const { MiniserverSession } = require('./miniserver-session');
 const { LoxoneCommandClient } = require('./loxone-command');
 const { DirectiveRouter, defaultEndpointsForTesting } = require('./directive-router');
 const { loadOrCreate: loadOrCreateDaemonUuid } = require('./daemon-uuid');
+const { LogLevelWatcher } = require('./loglevel-watcher');
 
 const STATE_FLUSH_INTERVAL_MS = 30_000;
 
@@ -72,6 +73,7 @@ let localHttp = null;
 let session = null;
 let stateFlushTimer = null;
 let devicesConfigRef = null;
+let logLevelWatcher = null;
 
 // ----- Main ---------------------------------------------------------------
 
@@ -170,33 +172,11 @@ async function main() {
     ? devicesConfig.toEndpoints()
     : defaultEndpointsForTesting();
 
-  // getOperatingMode: queries the live state cache for the current value of
-  // the operating-mode state UUID (extracted from LoxAPP3.json). Returns
-  // null when the cache hasn't received the value yet (cold start) — the
-  // router treats null as "don't block", which is the safer default during
-  // startup.
-  const getOperatingMode = () => {
-    const cat = structureCache.getCatalogue();
-    if (!cat || !cat.operatingModeStateUuid) {
-      log.debug({ hasCatalogue: !!cat, operatingModeStateUuid: cat && cat.operatingModeStateUuid },
-        'getOperatingMode: no operating-mode state UUID (vacation gate cannot work)');
-      return null;
-    }
-    const entry = stateCache.getValue(cat.operatingModeStateUuid);
-    log.debug(
-      { operatingModeStateUuid: cat.operatingModeStateUuid,
-        hasCacheEntry: !!entry, value: entry ? entry.value : null },
-      'getOperatingMode: resolved',
-    );
-    return entry ? entry.value : null;
-  };
-
   const directiveRouter = new DirectiveRouter({
     loxoneCommand,
     endpoints: initialEndpoints,
     log,
     getGlobals: () => devicesConfig.getGlobals(),
-    getOperatingMode,
     // Optional caches — when present, Discovery advertises ModeController for
     // LightControllerV2 endpoints whose moodList state has been observed,
     // and ReportState answers with live activeMoods-derived values. Absent
@@ -267,6 +247,14 @@ async function main() {
   });
   stateReporter.start();
 
+  // --- Live log-level watcher ---------------------------------------------
+  // LoxBerry's Log Manager changes the level with no plugin hook, so we
+  // poll the read-only Perl accessor and apply changes without a restart.
+  // Started here (before local-http) so the /log-level "re-read now" path
+  // has a watcher to delegate to.
+  logLevelWatcher = new LogLevelWatcher({ log });
+  logLevelWatcher.start();
+
   // --- Local HTTP API (CGI ↔ daemon) --------------------------------------
   localHttp = new LocalHttpServer({
     port: config.localHttpPort || 7800,
@@ -276,6 +264,7 @@ async function main() {
     pairings,
     structureCache,
     stateReporter,
+    logLevelWatcher,
     log,
   });
   try {
@@ -311,6 +300,7 @@ async function shutdown(signal) {
   log.info({ signal }, 'shutdown requested');
 
   if (stateFlushTimer) clearInterval(stateFlushTimer);
+  if (logLevelWatcher) logLevelWatcher.stop();
 
   // Stop in reverse boot order — local-http first (no more inbound), then
   // bridge (no more directives), then miniserver session.

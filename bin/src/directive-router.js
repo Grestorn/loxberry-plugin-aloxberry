@@ -457,14 +457,13 @@ function parseSourceList(text) {
 }
 
 class DirectiveRouter {
-  constructor({ loxoneCommand, endpoints = [], log, getGlobals, getOperatingMode, structureCache, stateCache }) {
+  constructor({ loxoneCommand, endpoints = [], log, getGlobals, structureCache, stateCache }) {
     this.loxoneCommand = loxoneCommand;       // LoxoneCommandClient (step 4)
     this.log = log.child({ component: 'directive-router' });
-    // Both gatekeeper hooks are functions, not values: they're called at
+    // The gatekeeper hook is a function, not a value: it's called at
     // directive-handling time so the router always sees fresh state without
     // a coordination dance.
     this.getGlobals       = typeof getGlobals       === 'function' ? getGlobals       : () => null;
-    this.getOperatingMode = typeof getOperatingMode === 'function' ? getOperatingMode : () => null;
     // Optional: when set, the router can look up control metadata (moodList
     // for ModeController, active state for ReportState) at directive-handling
     // time. Discovery falls back to PowerController-only when these are
@@ -1732,6 +1731,21 @@ class DirectiveRouter {
       command = (control.type === 'AudioZoneV2')
         ? `playZoneFav/${slot}`
         : `source/${slot}`;
+      // Debug: the exact mapping Alexa-mode -> Loxone command. `expectedName`
+      // is the favorite name we advertised for this slot at Discovery; if the
+      // zone plays something else, the slot/id correspondence is wrong (slot
+      // index vs. favorite id), not the transport.
+      const advertised = this._resolveSourceList(endpoint);
+      const match = advertised.find((s) => String(s.slot) === String(slot));
+      this.log.debug({
+        endpointId,
+        uuid: endpoint.uuid,
+        controlType: control.type,
+        alexaMode: requestedMode,
+        parsedSlot: slot,
+        expectedName: match ? match.name : null,
+        loxoneCommand: command,
+      }, `SetMode(Source): Alexa mode "${requestedMode}" -> Loxone jdev/sps/io/${endpoint.uuid}/${command}`);
     } else if (control?.type === 'LightController') {
       // LightController (v1): activates the scene whose number is the
       // raw command — `1`, `2`, `7`, etc. No prefix. Scene 0 = all off,
@@ -1824,6 +1838,20 @@ class DirectiveRouter {
       this.log.warn({ endpointId, requestedMode, command, res }, 'Loxone SetMode failed');
       return errorResponse(h, 'ENDPOINT_UNREACHABLE',
         `Loxone command failed: ${res.category} ${res.stderr || ''}`.trim());
+    }
+    if (control && AUDIO_TYPES.has(control.type) && h.instance === MODE_INSTANCE_SOURCE) {
+      // Debug: Miniserver accepted the favorite command. `stdout` is the
+      // raw Loxone webservice reply (LL.value). If this says it succeeded
+      // but the wrong favorite plays, the slot->id mapping is the culprit,
+      // not the transport — cross-check against the Discovery mode list.
+      this.log.debug({
+        endpointId,
+        uuid: endpoint.uuid,
+        controlType: control.type,
+        loxoneCommand: command,
+        loxoneReply: res.stdout,
+        durationMs: res.durationMs,
+      }, `SetMode(Source): Loxone accepted ${command}`);
     }
 
     // For LightControllerV2 only: also echo a derived powerState (OFF iff
@@ -3248,13 +3276,39 @@ class DirectiveRouter {
     if (uuid) {
       const entry = this.stateCache.getText(uuid);
       const parsed = parseSourceList(entry?.text);
-      if (parsed.length > 0) return parsed;
+      if (parsed.length > 0) {
+        // Debug: the exact favorite list we will project into Alexa
+        // ModeController.supportedModes at Discovery time. `value` is
+        // String(slot); each `slot` is sent verbatim as the second path
+        // segment of playZoneFav/<slot> (V2) or source/<slot> (V1). If the
+        // zone plays the wrong favorite, compare these (slot,name) pairs
+        // against the raw envelope below and the command logged at
+        // invocation time.
+        this.log.debug({
+          endpointId: endpoint.endpointId,
+          uuid: endpoint.uuid,
+          controlType: control.type,
+          sourceListStateUuid: uuid,
+          source: 'sourceList-state',
+          rawSourceList: entry?.text,
+          modes: parsed.map((s) => ({ value: String(s.slot), slot: s.slot, name: s.name })),
+        }, `Discovery: advertising ${parsed.length} audio source mode(s) to Alexa`);
+        return parsed;
+      }
     }
     // Fallback: 8 generic slots so Discovery emits a usable ModeController
     // even before any state has arrived. User re-discovers after favorites
     // are configured in Loxone to pick up the real names.
     const out = [];
     for (let i = 1; i <= 8; i++) out.push({ slot: i, name: `Source ${i}` });
+    this.log.debug({
+      endpointId: endpoint.endpointId,
+      uuid: endpoint.uuid,
+      controlType: control.type,
+      sourceListStateUuid: uuid || null,
+      source: 'fallback-generic',
+      modes: out.map((s) => ({ value: String(s.slot), slot: s.slot, name: s.name })),
+    }, 'Discovery: sourceList state not yet cached — advertising 8 generic fallback slots');
     return out;
   }
 

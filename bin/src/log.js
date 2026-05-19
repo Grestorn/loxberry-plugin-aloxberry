@@ -78,7 +78,12 @@ const TAG_FROM_LEVEL = {
 
 const DEFAULT_LEVEL = 6;
 
-function resolveLevel(raw) {
+// Pure parse: LoxBerry numeric (0-7), LoxBerry/pino name, or numeric string
+// → integer 0-7. Returns null for anything it can't make sense of — NO
+// side effects, NO default. Used by callers that must distinguish "valid
+// new level" from "garbage" (the live /log-level endpoint rejects garbage
+// with 400; the poller keeps the current level on garbage).
+function coerceLevel(raw) {
   if (raw === 0) return 0; // silent
   if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 7) {
     return raw;
@@ -93,6 +98,14 @@ function resolveLevel(raw) {
     const n = parseInt(key, 10);
     if (Number.isInteger(n) && n >= 0 && n <= 7) return n;
   }
+  return null;
+}
+
+// Fail-safe wrapper for the boot path (LOG_LEVEL env): unknown → info (6)
+// with a one-time stderr breadcrumb. The daemon must always come up logging.
+function resolveLevel(raw) {
+  const lvl = coerceLevel(raw);
+  if (lvl !== null) return lvl;
   process.stderr.write(
     `[log] unknown level ${JSON.stringify(raw)} — defaulting to info (6)\n`
   );
@@ -185,22 +198,44 @@ function formatContext(bindings, payload) {
 }
 
 class Logger {
-  constructor(level, bindings) {
-    this._level = level;
+  // `holder` is a shared { value } cell — NOT a copied scalar. The root
+  // logger and every .child() created from it point at the SAME holder, so
+  // setLevel() on any one instance re-thresholds all 117 call sites at once,
+  // with no restart. (Previously _level was copied by value into each child,
+  // which is why a level change used to require a daemon restart.)
+  constructor(holder, bindings) {
+    this._holder = holder;
     this._bindings = bindings || {};
   }
 
-  // pino-compatible: returns a new logger inheriting the threshold but with
+  // pino-compatible: returns a new logger sharing the threshold holder, with
   // bindings merged. Children can themselves call .child().
   child(bindings) {
-    return new Logger(this._level, { ...this._bindings, ...(bindings || {}) });
+    return new Logger(this._holder, { ...this._bindings, ...(bindings || {}) });
+  }
+
+  // Live re-threshold. Accepts the same forms as createLogger({level}).
+  // Returns the resolved integer level on success, or null on garbage
+  // (in which case the current level is left untouched — fail-safe). The
+  // caller decides how to treat null (poller: keep + debug; endpoint: 400).
+  setLevel(raw) {
+    const lvl = coerceLevel(raw);
+    if (lvl === null) return null;
+    this._holder.value = lvl;
+    return lvl;
+  }
+
+  getLevel() {
+    return this._holder.value;
   }
 
   // Internal: filter first (lazy — no formatting when below threshold),
   // then format and write a single contiguous block to stdout.
   _emit(eventLevel, arg1, arg2) {
     // Level filter: LoxBerry semantics (emit iff event-level <= threshold).
-    if (eventLevel > this._level) return;
+    // Read through the shared holder so a live setLevel() takes effect on
+    // the very next event, including for already-created child loggers.
+    if (eventLevel > this._holder.value) return;
 
     // Tolerate the same call signatures pino does:
     //   log.info('msg')
@@ -237,7 +272,8 @@ class Logger {
 
 function createLogger(opts) {
   const o = opts || {};
-  return new Logger(resolveLevel(o.level), {});
+  // One holder per logger tree; shared by reference with all children.
+  return new Logger({ value: resolveLevel(o.level) }, {});
 }
 
-module.exports = { createLogger };
+module.exports = { createLogger, coerceLevel };

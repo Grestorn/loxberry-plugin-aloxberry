@@ -647,7 +647,6 @@ function newRouter(endpoints, opts) {
     endpoints: endpoints || defaultEndpointsForTesting(),
     log,
     getGlobals:       opts.getGlobals,
-    getOperatingMode: opts.getOperatingMode,
     structureCache:   opts.structureCache,
     stateCache:       opts.stateCache,
   });

@@ -590,49 +590,6 @@ class StructureCache {
       }
     }
 
-    // Operating modes — used by the picker's "pause on Betriebszustand"
-    // gate. LoxApp3.json keys them by numeric index (as strings), values
-    // are display names. We expose a sorted array of {index, name}.
-    const operatingModes = [];
-    if (raw.operatingModes && typeof raw.operatingModes === 'object') {
-      for (const [k, v] of Object.entries(raw.operatingModes)) {
-        const idx = Number.parseInt(k, 10);
-        if (Number.isFinite(idx)) {
-          operatingModes.push({ index: idx, name: String(v) });
-        }
-      }
-      operatingModes.sort((a, b) => a.index - b.index);
-    }
-
-    // The state UUID whose value tracks the currently-active operating mode.
-    // The daemon's miniserver-events subscription will hand us values as they
-    // change; the gate compares against the picker-chosen index.
-    //
-    // KNOWN BUG (vacation gate never fires): the Loxone V17 Structure File
-    // does NOT expose the Miniserver-wide operating mode under
-    // globalStates.operatingMode — globalStates only carries sunrise/sunset/
-    // favColors/notifications/miniserverTime/liveSearch/modifications. So
-    // this is essentially always null and the gate fails open. The DEBUG
-    // dump below shows exactly what THIS Miniserver exposes so we can wire
-    // the correct source instead of guessing.
-    const globalStates = (raw.globalStates && typeof raw.globalStates === 'object')
-      ? raw.globalStates : {};
-    const operatingModeStateUuid = globalStates.operatingMode
-      || globalStates.operatingmode   // casing fallback (seen on some firmwares)
-      || null;
-    try {
-      this.log?.debug?.(
-        {
-          globalStateKeys: Object.keys(globalStates),
-          globalStates,                       // uuid map — small, safe to dump
-          operatingModesCount: operatingModes.length,
-          operatingModes,                     // [{index,name}] — the picker list
-          operatingModeStateUuid,             // expect null → that's the bug
-        },
-        'structure: operating-mode wiring (vacation-gate diagnostic)',
-      );
-    } catch { /* logging must never break parsing */ }
-
     return {
       lastModified:  raw.lastModified || null,
       msName:        raw.msInfo?.msName || raw.msInfo?.projectName || '',
@@ -640,8 +597,6 @@ class StructureCache {
       rooms: roomList,
       cats:  catList,
       controls,
-      operatingModes,
-      operatingModeStateUuid,
     };
   }
 
@@ -655,8 +610,6 @@ class StructureCache {
       rooms:   this.parsed.rooms,
       cats:    this.parsed.cats,
       controls: this.parsed.controls,
-      operatingModes: this.parsed.operatingModes,
-      operatingModeStateUuid: this.parsed.operatingModeStateUuid,
     };
   }
 
