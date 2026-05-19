@@ -170,33 +170,11 @@ async function main() {
     ? devicesConfig.toEndpoints()
     : defaultEndpointsForTesting();
 
-  // getOperatingMode: queries the live state cache for the current value of
-  // the operating-mode state UUID (extracted from LoxAPP3.json). Returns
-  // null when the cache hasn't received the value yet (cold start) — the
-  // router treats null as "don't block", which is the safer default during
-  // startup.
-  const getOperatingMode = () => {
-    const cat = structureCache.getCatalogue();
-    if (!cat || !cat.operatingModeStateUuid) {
-      log.debug({ hasCatalogue: !!cat, operatingModeStateUuid: cat && cat.operatingModeStateUuid },
-        'getOperatingMode: no operating-mode state UUID (vacation gate cannot work)');
-      return null;
-    }
-    const entry = stateCache.getValue(cat.operatingModeStateUuid);
-    log.debug(
-      { operatingModeStateUuid: cat.operatingModeStateUuid,
-        hasCacheEntry: !!entry, value: entry ? entry.value : null },
-      'getOperatingMode: resolved',
-    );
-    return entry ? entry.value : null;
-  };
-
   const directiveRouter = new DirectiveRouter({
     loxoneCommand,
     endpoints: initialEndpoints,
     log,
     getGlobals: () => devicesConfig.getGlobals(),
-    getOperatingMode,
     // Optional caches — when present, Discovery advertises ModeController for
     // LightControllerV2 endpoints whose moodList state has been observed,
     // and ReportState answers with live activeMoods-derived values. Absent
