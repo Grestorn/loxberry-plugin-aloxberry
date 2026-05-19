@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aloxberry Alexa Skill - Hilfe</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.5; padding: 10px; font-size: 13px; }
+        h1 { color: #0066cc; font-size: 16px; margin: 0 0 10px 0; padding-bottom: 5px; border-bottom: 2px solid #0066cc; }
+        h2 { color: #333; font-size: 14px; margin: 15px 0 8px 0; }
+        p { margin: 8px 0; }
+        ul, ol { margin: 5px 0; padding-left: 20px; }
+        li { margin: 4px 0; }
+        code { background: #f4f4f4; padding: 1px 4px; border-radius: 2px; font-family: monospace; font-size: 12px; }
+        .info { background: #e7f3ff; border-left: 3px solid #0066cc; padding: 8px; margin: 8px 0; font-size: 12px; }
+        .warning { background: #fff3cd; border-left: 3px solid #ff9800; padding: 8px; margin: 8px 0; font-size: 12px; }
+        a { color: #0066cc; }
+    </style>
+</head>
+<body>
+    <h1>Aloxberry Alexa Skill</h1>
+
+    <div class="info">
+        <strong>&#128214; Vollst&auml;ndige Dokumentation:</strong><br>
+        <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/README.md" target="_blank">GitHub README</a>
+        &mdash; Einrichtung, Sicherheitsmodell und die vollst&auml;ndige
+        Loxone&#8596;Alexa-Ger&auml;tezuordnung.
+        (Auch &uuml;ber den Link <em>Ausf&uuml;hrliche Hilfe</em> oben in
+        diesem Panel erreichbar.)
+    </div>
+
+    <div class="info">
+        <strong>&#128279; Direkt zu einer Anleitung:</strong><br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/de/setup.md" target="_blank"><strong>Einrichtung</strong></a>
+        &mdash; Voraussetzungen, Installation, Alexa verkn&uuml;pfen<br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/de/devices.md" target="_blank"><strong>Ger&auml;te</strong></a>
+        &mdash; Loxone&#8596;Alexa-Ger&auml;tezuordnung<br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/de/audio.md" target="_blank"><strong>Audio</strong></a>
+        &mdash; Musik-Player &amp; Favoriten
+    </div>
+
+    <p>Steuern Sie Ihr Loxone Smart Home per Sprache &uuml;ber Amazon Alexa.
+    Sie entscheiden genau, welche Loxone-Bausteine Alexa sehen darf und was
+    damit erlaubt ist.</p>
+
+    <h2>Schnellstart</h2>
+    <ol>
+        <li>Reiter <strong>Setup</strong> &rarr; Daemon <em>starten</em>, dann
+            einen einmaligen <strong>Kopplungscode</strong> erzeugen
+            (10 Min. g&uuml;ltig).</li>
+        <li>In der <strong>Alexa App</strong>: den Skill
+            <strong>&bdquo;Aloxberry&ldquo;</strong> aktivieren und die
+            Kontoverkn&uuml;pfung starten; den Kopplungscode eingeben. Es
+            werden keine Loxone-Zugangsdaten an Amazon &uuml;bertragen.</li>
+        <li>Reiter <strong>Devices</strong> &rarr; die gew&uuml;nschten
+            Loxone-Bausteine freigeben, Namen/F&auml;higkeiten setzen, dann
+            <em>Speichern</em>.</li>
+        <li>Sagen Sie <em>&bdquo;Alexa, suche nach Ger&auml;ten&ldquo;</em>,
+            um die &Auml;nderungen zu &uuml;bernehmen.</li>
+    </ol>
+
+    <h2>Die drei Reiter</h2>
+    <ul>
+        <li><strong>Devices</strong> &mdash; Auswahl, welche Loxone-Bausteine
+            Alexa sieht und wie sie zugeordnet werden (nichts wird automatisch
+            freigegeben).</li>
+        <li><strong>Setup</strong> &mdash; Daemon Start/Stopp, Status,
+            Kopplungscode, Einstellungen und der Schalter
+            &bdquo;alle Kopplungen l&ouml;schen&ldquo;.</li>
+        <li><strong>Logs</strong> &mdash; Log-Sitzungen je Daemon-Start; den
+            Loglevel in LoxBerry setzen und den Daemon neu starten.</li>
+    </ul>
+
+    <div class="info">
+        &#9881; <strong>Sicherheit:</strong> der Hauptschalter und das Gate
+        &bdquo;Pause, solange ein Virtueller Status an ist&ldquo;
+        (Reiter Devices) unterbrechen Alexa&rarr;Miniserver-Befehle sofort.
+        Das Cloud-Relay kann Ihre Befehle weder lesen noch f&auml;lschen
+        (Ende-zu-Ende-HMAC).
+    </div>
+
+    <h2>Fehlerbehebung</h2>
+    <ul>
+        <li><strong>Kein Katalog / keine Ger&auml;te:</strong> Daemon
+            l&auml;uft nicht oder ist nicht mit dem Miniserver verbunden
+            &mdash; Reiter Setup und die Logs pr&uuml;fen.</li>
+        <li><strong>Alexa findet keine Ger&auml;te:</strong> nach dem Speichern
+            im Reiter Devices erneut
+            <em>&bdquo;Alexa, suche nach Ger&auml;ten&ldquo;</em> sagen.</li>
+        <li><strong>Verkn&uuml;pfung funktioniert nicht mehr:</strong> evtl.
+            wurde die Identit&auml;t zur&uuml;ckgesetzt (Kopplungen
+            gel&ouml;scht) &mdash; in der Alexa App neu verkn&uuml;pfen.</li>
+    </ul>
+
+    <div class="warning">
+        &#9888; &Ouml;ffentliche Beta: gelegentliche Breaking Changes und
+        Neuverkn&uuml;pfungen zwischen Versionen sind m&ouml;glich. Nicht f&uuml;r
+        sicherheits- oder zutrittskritische Funktionen verlassen.
+    </div>
+</body>
+</html>

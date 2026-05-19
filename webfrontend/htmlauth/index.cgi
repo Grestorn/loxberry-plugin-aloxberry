@@ -47,6 +47,11 @@ my $cgi = CGI->new;
 my $plugin = LoxBerry::System::plugindata();
 my $title  = "$plugin->{PLUGINDB_TITLE} $plugin->{PLUGINDB_VERSION}";
 
+# "Ausführliche Hilfe" target (2nd arg to lbheader). Opens the repo README,
+# which is the entry point to the full user/dev documentation. The inline
+# help panel content is templates/<lang>/help.html (3rd arg, see below).
+my $HELP_LINK = 'https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/README.md';
+
 # Constants — paths and the daemon's loopback endpoint
 my $CONTROL_SH       = "$lbpbindir/control.sh";
 my $STATE_JSON       = "$lbpdatadir/state.json";
@@ -346,7 +351,11 @@ elsif ($page eq 'logs') {
     $template->param(LOGLIST_HTML => $loglist);
 }
 
-print LoxBerry::Web::lbheader($title, '', '');
+# lbheader($pagetitle, $helpurl, $helptemplate). $helptemplate is resolved by
+# LoxBerry as templates/<lang>/help.html (user language, English fallback) and
+# rendered into the collapsible info panel; $helpurl is the "Ausführliche
+# Hilfe" link at the top of that panel.
+print LoxBerry::Web::lbheader($title, $HELP_LINK, 'help.html');
 print $template->output;
 print LoxBerry::Web::lbfooter();
 

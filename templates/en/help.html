@@ -1,0 +1,90 @@
+Add <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aloxberry Alexa Skill - Help</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.5; padding: 10px; font-size: 13px; }
+        h1 { color: #0066cc; font-size: 16px; margin: 0 0 10px 0; padding-bottom: 5px; border-bottom: 2px solid #0066cc; }
+        h2 { color: #333; font-size: 14px; margin: 15px 0 8px 0; }
+        p { margin: 8px 0; }
+        ul, ol { margin: 5px 0; padding-left: 20px; }
+        li { margin: 4px 0; }
+        code { background: #f4f4f4; padding: 1px 4px; border-radius: 2px; font-family: monospace; font-size: 12px; }
+        .info { background: #e7f3ff; border-left: 3px solid #0066cc; padding: 8px; margin: 8px 0; font-size: 12px; }
+        .warning { background: #fff3cd; border-left: 3px solid #ff9800; padding: 8px; margin: 8px 0; font-size: 12px; }
+        a { color: #0066cc; }
+    </style>
+</head>
+<body>
+    <h1>Aloxberry Alexa Skill</h1>
+
+    <div class="info">
+        <strong>&#128214; Full documentation:</strong><br>
+        <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/README.md" target="_blank">GitHub README</a>
+        &mdash; setup, security model and the full Loxone&#8596;Alexa device mapping.
+        (Also reachable via the <em>Detailed help</em> link at the top of this panel.)
+    </div>
+
+    <div class="info">
+        <strong>&#128279; Jump straight to a guide:</strong><br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/en/setup.md" target="_blank"><strong>Setup</strong></a>
+        &mdash; requirements, install, linking Alexa<br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/en/devices.md" target="_blank"><strong>Devices</strong></a>
+        &mdash; Loxone&#8596;Alexa device mapping<br>
+        &#9656; <a href="https://github.com/Grestorn/loxberry-plugin-aloxberry/blob/main/doc/user/en/audio.md" target="_blank"><strong>Audio</strong></a>
+        &mdash; music players &amp; favorites
+    </div>
+
+    <p>Control your Loxone home by voice through Amazon Alexa. You decide
+    exactly which Loxone controls Alexa can see and what it may do with them.</p>
+
+    <h2>Quick start</h2>
+    <ol>
+        <li><strong>Setup</strong> tab &rarr; <em>Start</em> the daemon, then
+            generate a single-use <strong>pair code</strong> (valid 10 min).</li>
+        <li>In the <strong>Alexa app</strong>: enable the <strong>"Aloxberry"</strong>
+            skill and start account linking; paste the pair code when asked.
+            No Loxone credentials ever leave your LoxBerry.</li>
+        <li><strong>Devices</strong> tab &rarr; pick the Loxone controls to
+            expose, set friendly names/capabilities, then <em>Save</em>.</li>
+        <li>Say <em>"Alexa, discover my devices"</em> to pick up the changes.</li>
+    </ol>
+
+    <h2>The three tabs</h2>
+    <ul>
+        <li><strong>Devices</strong> &mdash; choose which Loxone controls Alexa
+            sees and how they map (nothing is exposed automatically).</li>
+        <li><strong>Setup</strong> &mdash; daemon start/stop, status, pair code,
+            runtime settings, and the "kill all pairings" switch.</li>
+        <li><strong>Logs</strong> &mdash; per-daemon-start log sessions; set the
+            log level in LoxBerry and restart the daemon to apply.</li>
+    </ul>
+
+    <div class="info">
+        &#9881; <strong>Safety:</strong> the master switch and the "pause while
+        a Virtual Status is on" gate (Devices tab) cut Alexa&rarr;Miniserver
+        commands instantly. The cloud relay can neither read nor forge your
+        commands (end-to-end HMAC).
+    </div>
+
+    <h2>Troubleshooting</h2>
+    <ul>
+        <li><strong>No catalogue / no devices:</strong> daemon not running or
+            not connected to the Miniserver &mdash; check the Setup tab and the
+            Logs.</li>
+        <li><strong>Alexa can't find devices:</strong> re-run
+            <em>"Alexa, discover my devices"</em> after saving on the Devices
+            tab.</li>
+        <li><strong>Link stopped working:</strong> the identity may have been
+            reset (kill-pairings) &mdash; re-link from the Alexa app.</li>
+    </ul>
+
+    <div class="warning">
+        &#9888; Public beta: expect occasional breaking changes and re-linking
+        between versions. Do not rely on it for safety- or access-critical
+        functions.
+    </div>
+</body>
+</html>
