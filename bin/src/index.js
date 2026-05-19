@@ -38,6 +38,7 @@ const { MiniserverSession } = require('./miniserver-session');
 const { LoxoneCommandClient } = require('./loxone-command');
 const { DirectiveRouter, defaultEndpointsForTesting } = require('./directive-router');
 const { loadOrCreate: loadOrCreateDaemonUuid } = require('./daemon-uuid');
+const { LogLevelWatcher } = require('./loglevel-watcher');
 
 const STATE_FLUSH_INTERVAL_MS = 30_000;
 
@@ -72,6 +73,7 @@ let localHttp = null;
 let session = null;
 let stateFlushTimer = null;
 let devicesConfigRef = null;
+let logLevelWatcher = null;
 
 // ----- Main ---------------------------------------------------------------
 
@@ -245,6 +247,14 @@ async function main() {
   });
   stateReporter.start();
 
+  // --- Live log-level watcher ---------------------------------------------
+  // LoxBerry's Log Manager changes the level with no plugin hook, so we
+  // poll the read-only Perl accessor and apply changes without a restart.
+  // Started here (before local-http) so the /log-level "re-read now" path
+  // has a watcher to delegate to.
+  logLevelWatcher = new LogLevelWatcher({ log });
+  logLevelWatcher.start();
+
   // --- Local HTTP API (CGI ↔ daemon) --------------------------------------
   localHttp = new LocalHttpServer({
     port: config.localHttpPort || 7800,
@@ -254,6 +264,7 @@ async function main() {
     pairings,
     structureCache,
     stateReporter,
+    logLevelWatcher,
     log,
   });
   try {
@@ -289,6 +300,7 @@ async function shutdown(signal) {
   log.info({ signal }, 'shutdown requested');
 
   if (stateFlushTimer) clearInterval(stateFlushTimer);
+  if (logLevelWatcher) logLevelWatcher.stop();
 
   // Stop in reverse boot order — local-http first (no more inbound), then
   // bridge (no more directives), then miniserver session.

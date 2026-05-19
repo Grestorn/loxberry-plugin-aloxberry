@@ -99,6 +99,7 @@ RSYNC_RULES=(
     --include='bin/lox-getstructure.pl'
     --include='bin/lox-send.pl'
     --include='bin/lox-control.pl'
+    --include='bin/lox-loglevel.pl'
     --include='bin/package.json'
     --include='bin/package-lock.json'
     --include='bin/.gitkeep'
@@ -125,6 +126,7 @@ chmod +x "$STAGE_DIR/bin/tail-daemon.sh"        2>/dev/null || true
 chmod +x "$STAGE_DIR/bin/log-session-create.pl" 2>/dev/null || true
 chmod +x "$STAGE_DIR/bin/lox-getconfig.pl"      2>/dev/null || true
 chmod +x "$STAGE_DIR/bin/lox-send.pl"           2>/dev/null || true
+chmod +x "$STAGE_DIR/bin/lox-loglevel.pl"       2>/dev/null || true
 
 # Quick sanity check before we zip.
 for required in plugin.cfg preinstall.sh postinstall.sh bin/src/index.js bin/package.json bin/control.sh cron/cron.reboot; do

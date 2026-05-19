@@ -14,6 +14,12 @@
 //   POST /reset-pairings    → rotate userId + skillSecret, reconnect bridge.
 //                             Existing Alexa links become orphans (504-offline).
 //                             Returns the new identity for the CGI to display.
+//   POST /log-level         → live log-threshold change, no daemon restart.
+//                             Body {"level": <0-7 | name>} applies that level
+//                             directly. Empty body = "re-read from LoxBerry
+//                             now" (forces an immediate poll instead of
+//                             waiting for the ~45s interval) — used by the
+//                             plugin CGI after the user changes the level.
 //
 // No request body required for either POST. POSTs are POSTs (not GETs) only
 // to make accidental browser-bar invocation impossible.
@@ -64,6 +70,7 @@ class LocalHttpServer {
   constructor({
     port = 7800, host = '127.0.0.1',
     state, bridgeClient, identityRef, pairings, structureCache, stateReporter,
+    logLevelWatcher,
     log,
   }) {
     this.port = port;
@@ -77,6 +84,9 @@ class LocalHttpServer {
     this.pairings = pairings || null;
     this.structureCache = structureCache || null;
     this.stateReporter = stateReporter || null;
+    this.logLevelWatcher = logLevelWatcher || null;
+    // NB: this child shares the level holder with the whole logger tree, so
+    // this.log.setLevel() below re-thresholds every component, not just us.
     this.log = log.child({ component: 'local-http' });
     this.server = null;
   }
@@ -115,6 +125,7 @@ class LocalHttpServer {
       if (path === '/pair' && method === 'POST') return await this.postPair(req, res);
       if (path === '/reset-pairings' && method === 'POST') return await this.postResetPairings(req, res);
       if (path === '/resync-state' && method === 'POST') return await this.postResyncState(res);
+      if (path === '/log-level' && method === 'POST') return await this.postLogLevel(req, res);
 
       if (method === 'OPTIONS') {
         res.writeHead(204).end();
@@ -237,6 +248,51 @@ class LocalHttpServer {
       return writeJson(res, 500, { error: 'snapshot_failed', message: err.message });
     }
     this.log.info(result, '/resync-state completed');
+    return writeJson(res, 200, { ok: true, ...result });
+  }
+
+  // POST /log-level
+  //   { "level": <0-7 | "debug" | ...> } → apply that threshold immediately.
+  //   {} / no body                       → re-read from LoxBerry right now
+  //                                         (immediate poll; the CGI uses
+  //                                         this so it doesn't need to know
+  //                                         the numeric value).
+  // Either way the change is live for the whole logger tree, no restart.
+  async postLogLevel(req, res) {
+    let body;
+    try {
+      body = await readJson(req);
+    } catch (err) {
+      return writeJson(res, 400, { error: err.message });
+    }
+
+    // Explicit level supplied → apply directly. setLevel returns the
+    // resolved 0-7 int, or null for garbage (which we reject loudly here
+    // rather than silently coercing — the env/boot path stays fail-safe,
+    // but an API caller deserves a 400).
+    if (body && body.level !== undefined && body.level !== null) {
+      const from = this.log.getLevel();
+      const applied = this.log.setLevel(body.level);
+      if (applied === null) {
+        return writeJson(res, 400, {
+          error: 'invalid_level',
+          hint: 'expected 0-7, a LoxBerry name (debug/info/warning/...), or a numeric string',
+        });
+      }
+      if (applied !== from) {
+        this.log.info({ from, to: applied, via: 'http' }, 'log level changed — applied without restart');
+      }
+      return writeJson(res, 200, { ok: true, level: applied, changed: applied !== from });
+    }
+
+    // No explicit level → force an immediate re-read of LoxBerry's value.
+    if (!this.logLevelWatcher || typeof this.logLevelWatcher.checkNow !== 'function') {
+      return writeJson(res, 503, { error: 'loglevel_watcher_unavailable' });
+    }
+    const result = await this.logLevelWatcher.checkNow();
+    if (result && result.error) {
+      return writeJson(res, 502, { error: 'reread_failed', message: result.error });
+    }
     return writeJson(res, 200, { ok: true, ...result });
   }
 

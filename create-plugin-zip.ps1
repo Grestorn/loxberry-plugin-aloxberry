@@ -82,6 +82,7 @@ try {
         'bin\log-session-create.pl',
         'bin\lox-getconfig.pl', 'bin\lox-getstructure.pl',
         'bin\lox-send.pl', 'bin\lox-control.pl',
+        'bin\lox-loglevel.pl',
         'bin\package.json', 'bin\package-lock.json',
         'bin\.gitkeep'
     )
