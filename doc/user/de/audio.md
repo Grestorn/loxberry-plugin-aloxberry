@@ -84,94 +84,33 @@ Wiedergabestatus.
 
 | Fehlende Fähigkeit | Warum sie bei AudioZoneV2 fehlt | Emulierbar? |
 |---|---|---|
-| **Quelle / Favoriten** (ModeController) | Favoriten werden dem Miniserver nicht bereitgestellt, und die eigene Favoriten-API des Audioservers weist Drittclients ab (`command not allowed when paired`). Vollständige Untersuchung: [devices.md](devices.md) + Projektplan. | **Ja** — über den Radio→`Fav`-Workaround in §3 unten. |
+| **Quelle / Favoriten** (ModeController) | Favoriten werden dem Miniserver nicht bereitgestellt, und die eigene Favoriten-API des Audioservers weist Drittclients ab (`command not allowed when paired`). Vollständige Untersuchung: [devices.md](devices.md) + Projektplan. | **Ja** — über den Radio→`Fav`-Workaround, siehe [tips.md §2](tips.md#2-audioserver-favoriten-per-sprache-starten-radiofav-workaround). |
 | **Wiederholung** (ModeController) | Der Audio-Player-Baustein hat **gar keinen Wiederholungs-Befehl** — der Funktionsbaustein selbst unterstützt das nicht. | **Nein.** Es gibt nichts zu verdrahten; der Audioserver kann per API nicht wiederholen. |
 | **Zufall** (ToggleController) | Der Audio-Player-Baustein hat **gar keinen Zufalls-Befehl** — wie bei der Wiederholung. | **Nein.** Gleicher Grund — es gibt keinen Eingang/Befehl dafür. |
 
-Also: **Quelle lässt sich umgehen** (Rest dieser Seite), aber
-**Wiederholung und Zufall lassen sich nicht emulieren**, weil der zugrunde
-liegende Audio-Player-Baustein keinen Mechanismus dafür bietet — weder am
-Miniserver noch am Audioserver. Wenn du Wiederholung/Zufall an einer
-Audioserver-Zone brauchst, stelle es einmalig in der Loxone-App ein; per
-Sprache ist es über dieses Plugin nicht steuerbar.
-
-Der Rest dieser Seite ist der **praktische Ausweg** für die Quellen-/
-Favoritenwahl bei `AudioZoneV2`.
+Also: **Quelle lässt sich umgehen** (siehe §3 und
+[tips.md §2](tips.md#2-audioserver-favoriten-per-sprache-starten-radiofav-workaround)),
+aber **Wiederholung und Zufall lassen sich nicht emulieren**, weil der
+zugrunde liegende Audio-Player-Baustein keinen Mechanismus dafür bietet —
+weder am Miniserver noch am Audioserver. Wenn du Wiederholung/Zufall an
+einer Audioserver-Zone brauchst, stelle es einmalig in der Loxone-App ein;
+per Sprache ist es über dieses Plugin nicht steuerbar.
 
 ---
 
-## 3. Workaround — Audioserver-Favoriten per Sprache über einen Radio-Baustein
+## 3. Audioserver-Favoriten per Sprache starten
 
-Der Trick: Loxones **Radio**-Baustein (Radiotasten) hat diskrete,
-beschriftete Ausgänge. Verbinde seinen Ausgang mit dem **`Fav`**-Eingang des
-Audio Players, dann wählt jede Radiotaste einen Zonenfavoriten. Das Plugin
-unterstützt den `Radio`-Typ bereits, sodass jede beschriftete Taste per
-Sprache ansprechbar wird.
+Für `AudioZoneV2`-Zonen lässt sich die Favoritenwahl per Sprache über einen
+Loxone **Radio**-Baustein am `Fav`-Eingang nachbauen — der Radio-Baustein
+wird vom Plugin als Szene an Alexa freigegeben, jede Radiotaste startet
+einen Zonenfavoriten.
 
-Du sagst dann:
-
-> **„Alexa, aktiviere \<Favoritname aus dem Radio-Baustein\>"**
-
-### 3.1 Radio-Baustein mit dem `Fav`-Eingang des Audio Players verbinden
-
-Füge in **Loxone Config** einen **Radio**-Baustein („Radiotasten") hinzu und
-verbinde dessen **`N`**-Ausgang mit dem **`Fav`**-Eingang des Audio Players:
-
-![Loxone Config: Ein Radio-Baustein („Musik Favoriten"), dessen N-Ausgang in den Fav-Eingang des Audio Players verdrahtet ist](../img/audio-radio-fav-wiring.png)
-
-### 3.2 Radio-Ausgänge beschriften
-
-Gib jedem Radio-Ausgang eine **sprachsichere Bezeichnung** (siehe §1 — genau
-diese Bezeichnungen sagst du zu Alexa). Bearbeite die Ausgänge („Ausgänge
-bearbeiten"):
-
-![Loxone-Config-Dialog „Ausgänge bearbeiten": jeder Radio-Ausgang 1..n hat eine Textbezeichnung](../img/audio-radio-outputs-config.png)
-
-### 3.3 Radio-Nummer mit der Loxone-Favoriten-**ID** abgleichen
-
-Dieser Schritt entscheidet über Erfolg oder Misserfolg:
-
-- Der **Radio**-Baustein gibt die Werte **1–16** aus (Ausgangsnummer).
-- In der **Loxone-App** kannst du jedem Zonenfavoriten **manuell eine ID
-  zuweisen** („Favoriten bearbeiten").
-- **Die Radio-Ausgangsnummer muss der manuell vergebenen ID des Favoriten
-  entsprechen.** Radio-Ausgang 4 → der Favorit mit ID 4 usw. Stimmen sie
-  nicht überein, spielt der falsche Favorit (oder keiner).
-
-![Loxone-App „Favoriten bearbeiten": jeder Favorit zeigt eine ID (1, 2, 3 …) und einen Typ (Playlist / Radiosender)](../img/audio-favorites-ids-app.png)
-
-Halte die **Radio-Bezeichnung** (was du sagst) und den **Favoriten bei
-dieser ID** (was spielt) synchron. Wenn du Favoriten in der App umsortierst,
-prüfe die IDs erneut gegen die Radio-Nummern.
-
-### 3.4 Den Radio-Baustein für Alexa freigeben
-
-Füge im Tab **Geräte** des Plugins den Radio-Baustein hinzu und gib ihn als
-**`SCENE_TRIGGER`** frei. Jeder beschriftete Ausgang wird dann zu einer
-Alexa-Szene/-Aktivität, die du per Namen auslösen kannst:
-
-> **„Alexa, aktiviere Morgenliste"** → Radio-Ausgang mit Bezeichnung
-> „Morgenliste" → `Fav` = diese Nummer → Audioserver spielt den Favoriten
-> mit der passenden ID.
-
-> ⚠️ Wende die **Namens-Disziplin aus §1** auf die Radio-Bezeichnungen an.
-> Ein Radio-Ausgang, der wörtlich „Bayern 1" oder „Jazz" heißt, wird von
-> Amazon Music gekapert, egal wie korrekt er verdrahtet ist. Ein Kunstwort
-> wie „Sender Bayern" oder „Liste Eins" sorgt dafür, dass der Sprachbefehl
-> in Loxone landet.
-
-### 3.5 Grenzen dieses Workarounds
-
-- Es ist ein **Einweg-Auslöser**: Du startest einen Favoriten, aber Alexa
-  hat keine Rückmeldung, welcher Favorit gerade läuft (Szenen-Auslöser sind
-  „fire-and-forget").
-- Du bist auf die **16 Ausgänge** des Radio-Bausteins begrenzt.
-- Es erfordert etwas **Loxone-Config- + Loxone-App**-Einrichtung je Zone; es
-  ist eine bewusste Nutzerentscheidung, nichts, was das Plugin für dich tun
-  kann (die Favoritennamen liegen nur auf dem Audioserver).
-- Nach erneutem Alexa-Verknüpfen oder Hinzufügen von Ausgängen **„Alexa,
-  suche nach Geräten"** ausführen, damit die neuen Szenennamen übernommen
-  werden.
+Die vollständige Schritt-für-Schritt-Anleitung (Verdrahtung,
+Radio-Nummer ⇔ Favoriten-ID, Freigabe als `SCENE_TRIGGER`) steht in
+**[tips.md → Audioserver-Favoriten per Sprache starten](tips.md#2-audioserver-favoriten-per-sprache-starten-radiofav-workaround)**.
+Die **Namens-Disziplin aus §1 dieser Seite** gilt dort 1:1: Radio-Ausgänge,
+die wie Amazon-Inhalte klingen, werden trotz korrekter Verdrahtung von
+Amazon Music gekapert.
 
 ---
 
@@ -180,10 +119,9 @@ Alexa-Szene/-Aktivität, die du per Namen auslösen kannst:
 - [ ] Audio-Transport („Play/Pause/Weiter") ist durch Alexa-Design
       unzuverlässig — nutze stattdessen Lautstärke/Stumm und das
       **Aktivieren** von Favoriten.
-- [ ] Jedes Gerät, jeder Favorit und jede Radio-Bezeichnung ist ein
+- [ ] Jeder Gerätename und jede Favoriten-/Radio-Bezeichnung ist ein
       **erfundener, sprachsicherer Name** (kein Genre/Künstler/Sender/
       Aktivitätswort).
-- [ ] Radio-Ausgang `N` → Audio-Player-Eingang `Fav`.
-- [ ] Radio-Ausgangs**nummer == Favoriten-ID** in der Loxone-App.
-- [ ] Radio-Baustein in *Geräte* als **SCENE_TRIGGER** hinzugefügt.
-- [ ] Nach Änderungen **„Alexa, suche nach Geräten"** ausgeführt.
+- [ ] Für AudioZoneV2-Favoriten: Schritte aus
+      [tips.md §2](tips.md#2-audioserver-favoriten-per-sprache-starten-radiofav-workaround)
+      umgesetzt.

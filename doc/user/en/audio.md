@@ -79,88 +79,33 @@ Speaker (volume/mute), Playback (play/pause/next/prev) and Playback-state.
 
 | Missing capability | Why it's gone for AudioZoneV2 | Can it be emulated? |
 |---|---|---|
-| **Source / favorites** (ModeController) | Favorites aren't exposed to the Miniserver, and the Audioserver's own favorites API refuses third-party clients (`command not allowed when paired`). Full investigation: [devices.md](devices.md) + project plan. | **Yes** — via the Radio→`Fav` workaround in §3 below. |
+| **Source / favorites** (ModeController) | Favorites aren't exposed to the Miniserver, and the Audioserver's own favorites API refuses third-party clients (`command not allowed when paired`). Full investigation: [devices.md](devices.md) + project plan. | **Yes** — via the Radio→`Fav` workaround, see [tips.md §2](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround). |
 | **Repeat** (ModeController) | The Audio Player control has **no repeat command at all** — the function block itself doesn't support it. | **No.** Nothing to wire to; the Audioserver simply can't repeat by API. |
 | **Shuffle** (ToggleController) | The Audio Player control has **no shuffle command at all** — same as repeat. | **No.** Same reason — there is no input or command to drive. |
 
-So: **Source can be worked around** (the rest of this page), but **Repeat
-and Shuffle cannot be emulated** because the underlying Audio Player control
-provides no mechanism for them — not at the Miniserver, not at the
-Audioserver. If you need repeat/shuffle on an Audioserver zone, set it once
-in the Loxone app; it is not voice-controllable through this plugin.
+So: **Source can be worked around** (see §3 and
+[tips.md §2](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround)),
+but **Repeat and Shuffle cannot be emulated** because the underlying Audio
+Player control provides no mechanism for them — not at the Miniserver, not
+at the Audioserver. If you need repeat/shuffle on an Audioserver zone, set
+it once in the Loxone app; it is not voice-controllable through this
+plugin.
 
 ---
 
-## 3. Workaround — start Audioserver favorites by voice via a Radio control
+## 3. Starting Audioserver favorites by voice
 
-The trick: Loxone's **Radio** function block (Radiotasten) has discrete,
-labelled outputs. Wire its output to the Audio Player's **`Fav`** input and
-each Radio button selects a zone favorite. The plugin already supports the
-`Radio` control type, so each labelled button becomes voice-addressable.
+For `AudioZoneV2` zones the favorite picker can be rebuilt by wiring a
+Loxone **Radio** block to the Audio Player's `Fav` input — the plugin
+exposes the Radio block as scenes to Alexa, and each Radio button starts a
+zone favorite.
 
-You then say:
-
-> **"Alexa, activate \<favorite label from the Radio control\>"**
-
-### 3.1 Wire a Radio block to the Audio Player `Fav` input
-
-In **Loxone Config**, add a **Radio** ("Radiotasten") block and connect its
-**`N`** output to the Audio Player's **`Fav`** input:
-
-![Loxone Config: a Radio block ("Musik Favoriten") whose N output is wired into the Audio Player's Fav input](../img/audio-radio-fav-wiring.png)
-
-### 3.2 Label the Radio outputs
-
-Give every Radio output a **voice-safe label** (see §1 — these labels are
-exactly what you will say to Alexa). Edit the outputs ("Ausgänge
-bearbeiten"):
-
-![Loxone Config "Edit outputs" dialog: each Radio output 1..n has a text label](../img/audio-radio-outputs-config.png)
-
-### 3.3 Match the Radio number to the Loxone favorite **ID**
-
-This is the step that makes or breaks it:
-
-- The **Radio** block emits the values **1–16** (output number).
-- In the **Loxone app** you can **manually assign an ID** to each zone
-  favorite ("Favoriten bearbeiten").
-- **The Radio output number must equal the favorite's manually assigned
-  ID.** Radio output 4 → the favorite whose ID is 4, etc. If they don't
-  line up, the wrong favorite (or none) plays.
-
-![Loxone app "Edit favorites": each favorite shows an ID (1, 2, 3 …) and a type (Playlist / Radio station)](../img/audio-favorites-ids-app.png)
-
-Keep the **Radio label** (what you say) and the **favorite at that ID**
-(what plays) in sync. If you reorder favorites in the app, re-check the IDs
-against the Radio numbers.
-
-### 3.4 Expose the Radio control to Alexa
-
-In the plugin's **Devices** tab, add the Radio control and expose it as a
-**`SCENE_TRIGGER`**. Each labelled output then becomes an Alexa
-scene/activity you can trigger by name:
-
-> **"Alexa, activate Morgenliste"** → Radio output with label "Morgenliste"
-> → `Fav` = that number → Audioserver plays the favorite with the matching
-> ID.
-
-> ⚠️ Apply the **naming discipline from §1** to the Radio labels. A Radio
-> output literally named "Bayern 1" or "Jazz" will be hijacked by Amazon
-> Music no matter how correctly it is wired. A coined label like
-> "Sender Bayern" or "Liste Eins" is what makes the voice command land in
-> Loxone.
-
-### 3.5 Limitations of this workaround
-
-- It is a **one-way trigger**: you start a favorite, but Alexa has no
-  feedback on which favorite is currently playing (Scene triggers are
-  fire-and-forget).
-- You are limited to the Radio block's **16 outputs**.
-- It needs a small amount of **Loxone Config + Loxone app** setup per zone;
-  it is a deliberate user choice, not something the plugin can do for you
-  (the favorite names live only on the Audioserver).
-- After re-linking Alexa or adding outputs, run **"Alexa, discover
-  devices"** so the new scene names are picked up.
+The full step-by-step (wiring, Radio-number ⇔ favorite-ID, exposure as
+`SCENE_TRIGGER`) lives in
+**[tips.md → Starting Audioserver favorites by voice](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround)**.
+The **naming discipline from §1 of this page** applies there 1:1: Radio
+outputs that sound like Amazon content will be hijacked by Amazon Music no
+matter how correctly they are wired.
 
 ---
 
@@ -168,9 +113,8 @@ scene/activity you can trigger by name:
 
 - [ ] Audio transport ("play/pause/next") is unreliable by Alexa design —
       use volume/mute and favorite **activation** instead.
-- [ ] Every device, favorite and Radio label is a **coined, voice-safe
-      name** (not a genre/artist/station/activity word).
-- [ ] Radio block `N` output → Audio Player `Fav` input.
-- [ ] Radio output **number == favorite ID** assigned in the Loxone app.
-- [ ] Radio control added in *Devices* as **SCENE_TRIGGER**.
-- [ ] Ran **"Alexa, discover devices"** after changes.
+- [ ] Every device name and every favorite/Radio label is a **coined,
+      voice-safe name** (not a genre/artist/station/activity word).
+- [ ] For AudioZoneV2 favorites: the steps in
+      [tips.md §2](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround)
+      are in place.

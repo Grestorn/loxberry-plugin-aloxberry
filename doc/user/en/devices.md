@@ -152,9 +152,11 @@ These appear only for the types they apply to:
   play/pause still work. Favorite selection for Audioserver zones may become
   possible later via a direct Audioserver integration; it is tracked as a known
   limitation. **There is a tested workaround** (a Loxone Radio block wired to
-  the Audio Player's `Fav` input, exposed as a scene) — see
-  **[audio.md](audio.md)**, which also covers why Alexa hijacks music
-  commands and how to choose voice-safe names.
+  the Audio Player's `Fav` input, exposed as a scene) — the step-by-step
+  lives in
+  **[tips.md → Starting Audioserver favorites by voice](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround)**.
+  Why Alexa hijacks music commands and how to choose voice-safe names is
+  covered in **[audio.md](audio.md)**.
 - Keep **friendly names unique** across rooms and easy to pronounce — that name
   *is* the voice command.
 

@@ -62,10 +62,12 @@ flowchart LR
 | 🔒 **Warum es sicher ist** | [security.md](security.md) |
 | 🛠️ **Voraussetzungen & Einrichtung** | [setup.md](setup.md) |
 | 🔗 **Loxone-↔-Alexa-Zuordnung** | [devices.md](devices.md) |
+| 💡 **Tipps & How-Tos** (Lichtstimmungen, Audio-Favoriten …) | [tips.md](tips.md) |
 | 🎵 **Audio-Player & Musikfavoriten** | [audio.md](audio.md) |
 
 Englische Fassungen: [Security](../en/security.md) ·
-[Setup](../en/setup.md) · [Devices](../en/devices.md) · [Audio](../en/audio.md)
+[Setup](../en/setup.md) · [Devices](../en/devices.md) ·
+[Tips](../en/tips.md) · [Audio](../en/audio.md)
 
 > Technische/Architektur-Dokumentation: siehe
 > [`doc/dev/`](../../dev/README.md) (nur Englisch, für Entwickler & Selbst-Hoster).

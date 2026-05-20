@@ -155,8 +155,10 @@ Diese erscheinen nur bei den Typen, für die sie gelten:
   später über eine direkte Audioserver-Anbindung möglich; dies ist als bekannte
   Einschränkung vermerkt. **Es gibt einen erprobten Workaround** (ein
   Loxone-Radio-Baustein am `Fav`-Eingang des Audio Players, als Szene
-  freigegeben) — siehe **[audio.md](audio.md)**; dort wird auch erklärt, warum
-  Alexa Musikbefehle kapert und wie man sprachsichere Namen wählt.
+  freigegeben) — die Schritt-für-Schritt-Anleitung steht in
+  **[tips.md → Audioserver-Favoriten per Sprache starten](tips.md#2-audioserver-favoriten-per-sprache-starten-radiofav-workaround)**.
+  Warum Alexa Musikbefehle generell kapert und wie man sprachsichere Namen
+  wählt, erklärt **[audio.md](audio.md)**.
 - **Anzeigenamen** über Räume hinweg eindeutig und gut aussprechbar halten —
   dieser Name *ist* der Sprachbefehl.
 
