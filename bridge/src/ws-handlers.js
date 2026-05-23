@@ -6,6 +6,8 @@ const routing = require('./routing');
 const dispatch = require('./dispatch');
 const pair = require('./pair');
 const outbound = require('./outbound');
+const healthQuery = require('./health-query');
+const clean = require('./clean');
 
 // userId is a routing/identity token whose secrecy the anti-hijack
 // protection depends on — never log it raw (P0 #5 / #13). A short,
@@ -173,6 +175,24 @@ function handleConnection(ws, _req, log) {
       );
       safeSend(ws, { type: 'welcome', version: PROTOCOL_VERSION });
       state.heartbeatTimer = setInterval(sendPing, HEARTBEAT_INTERVAL_MS);
+
+      // Self-healing path: any link-revocations that happened while the
+      // daemon was disconnected get delivered now. Failure to fetch is
+      // non-fatal — the plugin keeps running, the UI just lacks the
+      // up-to-date snapshot until the next welcome.
+      const heldUserId = state.userId;
+      healthQuery.fetchSnapshot(heldUserId, log).then((snapshot) => {
+        if (!snapshot) return;
+        // Verify we still own the slot before sending — a fast reconnect
+        // could have displaced us between the fetch and the response.
+        if (routing.get(heldUserId) !== ws) return;
+        safeSend(ws, {
+          type:         'notification',
+          notification: { kind: 'health-snapshot', ...snapshot },
+        });
+      }).catch((err) => {
+        log.warn({ err: err.message, uid: fp(heldUserId) }, 'health snapshot post-welcome failed');
+      });
       return;
     }
 
@@ -224,6 +244,40 @@ function handleConnection(ws, _req, log) {
           'pair-publish stored',
         );
         safeSend(ws, { type: 'pair-publish-ok', requestId: msg.requestId || null });
+        break;
+      }
+      case 'clean-request': {
+        // Daemon is asking us to delete its DDB rows. The bridgeUserId is
+        // implicit (state.userId from the hello), so the daemon can ONLY
+        // clean rows it actually owns — no need to trust a client-supplied
+        // id. `scope` is 'revoked' (broken-only) or 'all' (paired with
+        // identity rotation on the daemon side).
+        const reqId = typeof msg.requestId === 'string' ? msg.requestId : null;
+        const scope = msg.scope === 'all' ? 'all' : (msg.scope === 'revoked' ? 'revoked' : null);
+        if (!scope) {
+          log.warn({ uid: fp(state.userId) }, 'clean-request: invalid scope');
+          safeSend(ws, { type: 'clean-response', requestId: reqId, ok: false, error: 'invalid_scope' });
+          break;
+        }
+        // Fire-and-await but don't block other messages — schedule on next tick.
+        clean.callClean(state.userId, scope, log).then((result) => {
+          // Same routing-identity recheck as the welcome-time snapshot: if
+          // the daemon has reconnected during the Lambda call, sending on
+          // the old `ws` is at best a no-op. Bail in that case.
+          if (routing.get(state.userId) !== ws) return;
+          safeSend(ws, {
+            type:      'clean-response',
+            requestId: reqId,
+            ok:        result.ok,
+            error:     result.error || null,
+            deleted:   result.deleted || 0,
+            revokedRemoved: result.revokedRemoved || [],
+          });
+        }).catch((err) => {
+          log.warn({ err: err.message, uid: fp(state.userId) }, 'clean-request handler threw');
+          if (routing.get(state.userId) !== ws) return;
+          safeSend(ws, { type: 'clean-response', requestId: reqId, ok: false, error: err.message });
+        });
         break;
       }
       case 'report': {

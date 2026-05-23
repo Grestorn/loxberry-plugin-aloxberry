@@ -7,6 +7,7 @@ const {
   GetCommand,
   DeleteCommand,
   ScanCommand,
+  UpdateCommand,
 } = require('@aws-sdk/lib-dynamodb');
 
 const { timingSafeEqual } = require('crypto');
@@ -43,6 +44,40 @@ const BRIDGE_DISPATCH_SECRET_PARAM = process.env.BRIDGE_DISPATCH_SECRET_PARAM ||
 async function getBridgeDispatchSecret() {
   if (!BRIDGE_DISPATCH_SECRET_PARAM) return '';
   return getSecureParam(BRIDGE_DISPATCH_SECRET_PARAM);
+}
+
+const NOTIFY_TIMEOUT_MS = 3000;
+
+// Fire-and-forget notification to a connected daemon via the bridge's
+// /notify endpoint. The bridge looks up the WSS for `bridgeUserId` and
+// sends a `{type:'notification', notification:{...}}` frame; if the daemon
+// is offline the bridge replies 204 and the notification is dropped (the
+// daemon refetches health on its next welcome handshake, so a missed push
+// is self-healing).
+//
+// Errors here are non-fatal at the caller — they log a warning.
+async function notifyDaemon(bridgeUserId, notification) {
+  if (!BRIDGE_URL) {
+    throw new Error('BRIDGE_URL is not configured');
+  }
+  const secret = await getBridgeDispatchSecret();
+  if (!secret) {
+    throw new Error('bridge dispatch secret is unconfigured');
+  }
+  const res = await fetch(`${BRIDGE_URL}/notify`, {
+    method:  'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-bridge-auth': secret,
+      'user-agent':    'aloxberry-oauth-handler/0.1',
+    },
+    body:   JSON.stringify({ userId: bridgeUserId, notification }),
+    signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS),
+  });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`bridge /notify ${res.status} ${text.slice(0, 120)}`);
+  }
 }
 
 // OAuth confidential-client credentials. These are the Client ID / Client
@@ -190,6 +225,8 @@ exports.handler = async (event, context) => {
     if (path === '/authorize' && method === 'POST') return await handleAuthorizePost(event);
     if (path === '/token' && method === 'POST') return await handleToken(event);
     if (path === '/event' && method === 'POST') return await handleEvent(event);
+    if (path === '/health-query' && method === 'POST') return await handleHealthQuery(event);
+    if (path === '/clean' && method === 'POST') return await handleClean(event);
 
     return jsonResponse(404, { error: 'not_found' });
   } catch (err) {
@@ -651,11 +688,23 @@ async function handleEvent(event) {
     FilterExpression: 'bridgeUserId = :bu',
     ExpressionAttributeValues: { ':bu': body.bridgeUserId },
   }));
-  const users = (scan.Items || []).filter((u) => u.skillSecret && u.lwaRefreshToken);
+  const allUsers = (scan.Items || []).filter((u) => u.skillSecret && u.lwaRefreshToken);
+  // Split off rows whose refresh token has been revoked (LWA returned
+  // `invalid_grant` on a previous fanout). These users must re-link the skill
+  // in the Alexa app before traffic can resume; trying their dead refresh
+  // token on every ChangeReport just turns the log into a firehose (see
+  // commit-history note: one install once produced ~15k failures/day). The
+  // flag is cleared automatically on AcceptGrant when the user re-links.
+  const users        = allUsers.filter((u) => !u.lwaRevoked);
+  const skippedRevoked = allUsers.length - users.length;
   if (users.length === 0) {
-    log.warn('event.no_matching_users', { requestId, bridgeUserId: body.bridgeUserId.slice(0, 8) });
+    log.warn('event.no_matching_users', {
+      requestId,
+      bridgeUserId: body.bridgeUserId.slice(0, 8),
+      skippedRevoked,
+    });
     // Return 200 so the bridge doesn't retry — there's literally no recipient.
-    return jsonResponse(200, { delivered: 0, reason: 'no_users' });
+    return jsonResponse(200, { delivered: 0, reason: 'no_users', skippedRevoked });
   }
 
   // ---- 4. Verify daemon HMAC ----------------------------------------------
@@ -697,11 +746,24 @@ async function handleEvent(event) {
         requestId,
         userId: user.userId,
         error:  err.message,
+        lwaError: err.lwaError || null,
         // err.cause is where Node's undici stashes the underlying
         // SystemError (DNS, ECONNRESET, etc.) or AbortError.
         cause:  err.cause?.message || err.cause?.code || err.cause?.errno || null,
         causeType: err.cause?.name || null,
       });
+      // `invalid_grant` is terminal — the refresh token is dead. Mark the
+      // row so the next fanout skips it (above), and notify the daemon so
+      // the plugin UI can prompt the user to re-link.
+      if (err.lwaError === 'invalid_grant') {
+        await markUserRevoked(user, requestId).catch((markErr) => {
+          log.error('event.mark_revoked_failed', {
+            requestId,
+            userId: user.userId,
+            error:  markErr.message,
+          });
+        });
+      }
       continue;
     }
 
@@ -754,12 +816,209 @@ async function handleEvent(event) {
     bridgeUserId: body.bridgeUserId.slice(0, 8),
     delivered,
     failed,
+    skippedRevoked,
   };
   if (failed > 0) log.warn('event.fanout_partial_failure', fanoutFields);
   else            log.debug('event.fanout_complete', fanoutFields);
   // Return 2xx even with partial failure — the bridge has no useful retry
   // policy for state events (the next state change will overwrite this one).
-  return jsonResponse(200, { delivered, failed });
+  return jsonResponse(200, { delivered, failed, skippedRevoked });
+}
+
+// Mark a user row as having a revoked LWA refresh token. Idempotent: if the
+// flag is already set we don't rewrite it (saves a DDB write and keeps
+// lwaRevokedAt pointing at the *first* time we observed the revocation,
+// which is what the UI shows). Also fires a best-effort push to the daemon
+// so the plugin UI can update without waiting for the next polling cycle.
+async function markUserRevoked(user, requestId) {
+  if (user.lwaRevoked) return;
+  await getDocClient().send(new UpdateCommand({
+    TableName: tableNames.users,
+    Key: { userId: user.userId },
+    UpdateExpression:
+      'SET lwaRevoked = :true, lwaRevokedAt = :now, updatedAt = :now',
+    ConditionExpression: 'attribute_exists(userId) AND (attribute_not_exists(lwaRevoked) OR lwaRevoked = :false)',
+    ExpressionAttributeValues: {
+      ':true':  true,
+      ':false': false,
+      ':now':   new Date().toISOString(),
+    },
+  })).catch((err) => {
+    // ConditionalCheckFailedException means another fanout beat us to it —
+    // that's the idempotency contract working, not an error worth raising.
+    if (err.name !== 'ConditionalCheckFailedException') throw err;
+  });
+
+  log.info('event.user_revoked', {
+    requestId,
+    userId:       user.userId,
+    bridgeUserId: user.bridgeUserId ? user.bridgeUserId.slice(0, 8) : null,
+  });
+
+  // Fire-and-forget push to the daemon. Failure here is non-fatal — the
+  // daemon's reconnect-time health snapshot will pick it up regardless.
+  if (user.bridgeUserId) {
+    notifyDaemon(user.bridgeUserId, {
+      kind:        'link-revoked',
+      alexaUserId: user.userId,
+      revokedAt:   new Date().toISOString(),
+    }).catch((err) => {
+      log.warn('event.notify_failed', {
+        requestId,
+        userId: user.userId,
+        error:  err.message,
+      });
+    });
+  }
+}
+
+// -----------------------------------------------------------------------------
+// POST /health-query — bridge → Lambda: "give me current link state for this
+// bridgeUserId". The bridge calls this when a daemon completes the WSS
+// welcome handshake, then forwards the result to the daemon as a
+// `health-snapshot` message. Self-healing path for revocations that
+// happened while the WSS was down.
+//
+// Auth: same x-bridge-auth shared secret as /event and /notify.
+// Body: { bridgeUserId }
+// Reply: { linked: N, revoked: [{ alexaUserId, revokedAt }, ...] }
+// -----------------------------------------------------------------------------
+
+async function handleHealthQuery(event) {
+  const requestId = event?.requestContext?.requestId;
+  const bridgeAuth = headerValue(event, 'x-bridge-auth') || '';
+  const bridgeSecret = await getBridgeDispatchSecret();
+  if (!bridgeSecret) {
+    log.error('health.no_bridge_secret', { requestId });
+    return jsonResponse(503, { error: 'bridge_dispatch_secret_unconfigured' });
+  }
+  if (!timingSafeEqualStrings(bridgeAuth, bridgeSecret)) {
+    log.warn('health.bridge_auth_failed', { requestId });
+    return jsonResponse(401, { error: 'unauthorized' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyAsString(event));
+  } catch {
+    return jsonResponse(400, { error: 'invalid_body' });
+  }
+  const bridgeUserId = body?.bridgeUserId;
+  if (typeof bridgeUserId !== 'string' || bridgeUserId.length === 0) {
+    return jsonResponse(400, { error: 'invalid_bridgeUserId' });
+  }
+
+  // Same scan shape as handleEvent. Beta scale — a GSI is a Phase-5 optimization.
+  const scan = await getDocClient().send(new ScanCommand({
+    TableName: tableNames.users,
+    FilterExpression: 'bridgeUserId = :bu',
+    ExpressionAttributeValues: { ':bu': bridgeUserId },
+    ProjectionExpression: 'userId, lwaRevoked, lwaRevokedAt',
+  }));
+  const all = scan.Items || [];
+  const revoked = all
+    .filter((u) => u.lwaRevoked === true)
+    .map((u) => ({ alexaUserId: u.userId, revokedAt: u.lwaRevokedAt || null }));
+
+  return jsonResponse(200, { linked: all.length, revoked });
+}
+
+// -----------------------------------------------------------------------------
+// POST /clean — bridge → Lambda: "delete user rows for this bridgeUserId."
+//
+// Body: { bridgeUserId, scope: 'revoked' | 'all' }
+//   scope='revoked' deletes only rows with lwaRevoked=true.
+//   scope='all'     deletes every row for this bridgeUserId (used by the
+//                   "Kill all pairings" flow before identity rotation, so
+//                   the orphan rows go away too instead of leaking forever).
+//
+// Auth: same x-bridge-auth shared secret as /event /notify /health-query.
+// Reply: { deleted: N, revokedRemoved: [alexaUserId, ...] }
+//
+// At beta scale we expect at most a couple dozen rows per bridgeUserId, so
+// a simple per-item DeleteCommand loop is cheap and avoids the BatchWriteItem
+// 25-item-batch handling. If usage outgrows that, switch to BatchWriteItem.
+// -----------------------------------------------------------------------------
+
+async function handleClean(event) {
+  const requestId = event?.requestContext?.requestId;
+  const bridgeAuth = headerValue(event, 'x-bridge-auth') || '';
+  const bridgeSecret = await getBridgeDispatchSecret();
+  if (!bridgeSecret) {
+    log.error('clean.no_bridge_secret', { requestId });
+    return jsonResponse(503, { error: 'bridge_dispatch_secret_unconfigured' });
+  }
+  if (!timingSafeEqualStrings(bridgeAuth, bridgeSecret)) {
+    log.warn('clean.bridge_auth_failed', { requestId });
+    return jsonResponse(401, { error: 'unauthorized' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(bodyAsString(event));
+  } catch {
+    return jsonResponse(400, { error: 'invalid_body' });
+  }
+  const bridgeUserId = body?.bridgeUserId;
+  const scope = body?.scope;
+  if (typeof bridgeUserId !== 'string' || bridgeUserId.length === 0) {
+    return jsonResponse(400, { error: 'invalid_bridgeUserId' });
+  }
+  if (scope !== 'revoked' && scope !== 'all') {
+    return jsonResponse(400, { error: 'invalid_scope' });
+  }
+
+  const scan = await getDocClient().send(new ScanCommand({
+    TableName: tableNames.users,
+    FilterExpression: 'bridgeUserId = :bu',
+    ExpressionAttributeValues: { ':bu': bridgeUserId },
+    ProjectionExpression: 'userId, lwaRevoked',
+  }));
+  const candidates = (scan.Items || []).filter(
+    (u) => scope === 'all' || u.lwaRevoked === true,
+  );
+
+  const removed = [];
+  for (const u of candidates) {
+    try {
+      // For scope='revoked' we ConditionalDelete: only succeed if the row
+      // is still revoked at the moment of the delete. Closes the race where
+      // a user re-links between our scan above and the DeleteCommand —
+      // AcceptGrant clears lwaRevoked, our delete then no-ops (catches
+      // ConditionalCheckFailedException below) instead of nuking the fresh
+      // row. For scope='all' we don't condition: the user explicitly asked
+      // to wipe everything, and identity rotation is about to make these
+      // rows orphans anyway.
+      const params = {
+        TableName: tableNames.users,
+        Key: { userId: u.userId },
+      };
+      if (scope === 'revoked') {
+        params.ConditionExpression = 'lwaRevoked = :true';
+        params.ExpressionAttributeValues = { ':true': true };
+      }
+      await getDocClient().send(new DeleteCommand(params));
+      removed.push(u.userId);
+    } catch (err) {
+      if (err.name === 'ConditionalCheckFailedException') {
+        // Row was re-linked between scan and delete — leave it alone.
+        log.info('clean.skipped_relinked', { requestId, userId: u.userId });
+        continue;
+      }
+      log.error('clean.delete_failed', { requestId, userId: u.userId, error: err.message });
+      // Continue with the rest — partial cleanup beats none.
+    }
+  }
+
+  log.info('clean.completed', {
+    requestId,
+    bridgeUserId: bridgeUserId.slice(0, 8),
+    scope,
+    deleted: removed.length,
+    scanned: candidates.length,
+  });
+
+  return jsonResponse(200, { deleted: removed.length, revokedRemoved: removed });
 }
 
 // Headers from API Gateway HTTP API arrive lower-cased in event.headers.

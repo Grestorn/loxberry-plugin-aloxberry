@@ -85,6 +85,11 @@ class BridgeClient extends EventEmitter {
     // Outstanding pair-publish acks. Key = requestId, value = {resolve, reject, timer}.
     // Cleared on disconnect (pending ones reject so callers don't hang forever).
     this.pendingPairPublishes = new Map();
+
+    // Outstanding clean-request acks. Same pattern as pendingPairPublishes;
+    // the wait can be longer (Lambda iterates DeleteCommand calls) so the
+    // default timeout in requestClean() is higher.
+    this.pendingCleans = new Map();
   }
 
   start() {
@@ -235,6 +240,12 @@ class BridgeClient extends EventEmitter {
       case 'pair-publish-error':
         this.resolvePairPublish(msg.requestId, new Error(`pair-publish rejected: ${msg.reason || 'unknown'}`));
         break;
+      case 'notification':
+        await this.onNotification(msg.notification);
+        break;
+      case 'clean-response':
+        this.resolveClean(msg.requestId, msg);
+        break;
       default:
         this.log.debug({ type: msg.type }, 'ignoring unknown message type');
     }
@@ -263,6 +274,52 @@ class BridgeClient extends EventEmitter {
     });
     this.log.info('bridge handshake complete');
     this.emit('connected');
+  }
+
+  // Bridge → daemon push for link-state changes. Two kinds today:
+  //
+  //   - link-revoked    : Lambda just flagged an Alexa account as needing
+  //                       re-link (LWA returned `invalid_grant`). One per
+  //                       fanout that hit a dead refresh token.
+  //   - health-snapshot : Authoritative current revocation list, sent once
+  //                       after each WSS welcome. Catches up any
+  //                       link-revoked notifications that fired while the
+  //                       daemon was disconnected.
+  //
+  // The Lambda owns the source of truth (DDB user row). These messages are
+  // display-only on the daemon side — the CGI reads pairings.json and
+  // shows a re-link banner.
+  async onNotification(notification) {
+    if (!notification || typeof notification !== 'object') {
+      this.log.warn('notification: malformed envelope');
+      return;
+    }
+    if (!this.pairings) {
+      this.log.debug({ kind: notification.kind }, 'notification: no pairings tracker — ignoring');
+      return;
+    }
+    try {
+      switch (notification.kind) {
+        case 'link-revoked':
+          this.log.info(
+            { alexaUserId: notification.alexaUserId },
+            'notification: link-revoked',
+          );
+          await this.pairings.markRevoked(notification.alexaUserId, notification.revokedAt);
+          break;
+        case 'health-snapshot':
+          this.log.info(
+            { linked: notification.linked, revoked: (notification.revoked || []).length },
+            'notification: health-snapshot',
+          );
+          await this.pairings.applySnapshot(notification);
+          break;
+        default:
+          this.log.debug({ kind: notification.kind }, 'notification: unknown kind — ignoring');
+      }
+    } catch (err) {
+      this.log.warn({ err: err.message, kind: notification.kind }, 'notification handler threw');
+    }
   }
 
   async onDirective(msg) {
@@ -353,6 +410,11 @@ class BridgeClient extends EventEmitter {
       awaiter.reject(new Error('bridge_disconnected'));
     }
     this.pendingPairPublishes.clear();
+    for (const [, awaiter] of this.pendingCleans) {
+      clearTimeout(awaiter.timer);
+      awaiter.reject(new Error('bridge_disconnected'));
+    }
+    this.pendingCleans.clear();
 
     const action = CLOSE_ACTIONS[code] || DEFAULT_CLOSE_ACTION;
     await this.state.update({
@@ -433,6 +495,53 @@ class BridgeClient extends EventEmitter {
     clearTimeout(awaiter.timer);
     if (err) awaiter.reject(err);
     else awaiter.resolve();
+  }
+
+  // Ask the bridge → Lambda to delete our DDB user rows.
+  //   scope='revoked' — only rows with lwaRevoked=true (broken accounts).
+  //   scope='all'     — every row for this bridgeUserId.
+  // Resolves with { deleted, revokedRemoved }. Rejects on disconnect /
+  // timeout / Lambda error.
+  //
+  // Bridge timeout is 10s on the Lambda call; we go a touch longer here so
+  // the daemon-side timer fires only if the bridge itself disappears.
+  requestClean(scope, { timeoutMs = 12000 } = {}) {
+    if (scope !== 'revoked' && scope !== 'all') {
+      return Promise.reject(new Error('invalid_scope'));
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('bridge_not_connected'));
+    }
+    if (!this.connectedOnce) {
+      return Promise.reject(new Error('bridge_handshake_incomplete'));
+    }
+    const requestId = `cl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingCleans.delete(requestId)) {
+          reject(new Error('clean_timeout'));
+        }
+      }, timeoutMs);
+      this.pendingCleans.set(requestId, { resolve, reject, timer });
+      safeSend(this.ws, { type: 'clean-request', requestId, scope });
+    });
+  }
+
+  // Internal: clean-response handler invoked from onMessage.
+  resolveClean(requestId, msg) {
+    if (!requestId) return;
+    const awaiter = this.pendingCleans.get(requestId);
+    if (!awaiter) return;
+    this.pendingCleans.delete(requestId);
+    clearTimeout(awaiter.timer);
+    if (msg.ok) {
+      awaiter.resolve({
+        deleted:        msg.deleted || 0,
+        revokedRemoved: msg.revokedRemoved || [],
+      });
+    } else {
+      awaiter.reject(new Error(msg.error || 'clean_failed'));
+    }
   }
 
   // Send a Phase-4 proactive ChangeReport up the WSS. The caller (state-

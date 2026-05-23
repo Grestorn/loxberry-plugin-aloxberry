@@ -460,8 +460,13 @@ async function handleAcceptGrant(directive) {
     await getDocClient().send(new UpdateCommand({
       TableName: tableNames.users,
       Key: { userId },
+      // Set the new refresh token and clear any lingering revocation flag
+      // — re-linking IS the recovery path, so an `invalid_grant` from a
+      // prior refresh-token now no longer applies. The plugin UI watches
+      // these fields to flip the "needs re-link" warning back off.
       UpdateExpression:
-        'SET lwaRefreshToken = :rt, lwaGrantedAt = :now, updatedAt = :now',
+        'SET lwaRefreshToken = :rt, lwaGrantedAt = :now, updatedAt = :now '
+        + 'REMOVE lwaRevoked, lwaRevokedAt',
       ExpressionAttributeValues: {
         ':rt':  tokens.refresh_token,
         ':now': new Date().toISOString(),

@@ -65,7 +65,23 @@ async function refreshLwaAccessToken(refreshToken) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`LWA refresh failed: HTTP ${res.status} ${text}`);
+    const err = new Error(`LWA refresh failed: HTTP ${res.status} ${text}`);
+    err.httpStatus = res.status;
+    // LWA documents an `error` field in the JSON body for OAuth2 errors —
+    // `invalid_grant` (token revoked/expired — terminal), `invalid_client`
+    // (our credentials are wrong — operator alert), `invalid_request` /
+    // `unauthorized_client` etc. Surface it so the caller can distinguish
+    // "this user must re-link" from "retry next time".
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.error === 'string') {
+        err.lwaError = parsed.error;
+      }
+    } catch {
+      // Non-JSON body (e.g. LWA edge giving us an HTML 5xx page). Leave
+      // lwaError unset; httpStatus is still there for the caller to switch on.
+    }
+    throw err;
   }
   const json = await res.json();
   if (!json.access_token) {

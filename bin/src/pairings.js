@@ -73,6 +73,83 @@ class PairingsTracker {
     await this._enqueueSave();
   }
 
+  // Remove the named entries from pairings.json. Used after Lambda confirms
+  // the corresponding DDB rows were deleted ("Remove broken links" path).
+  // Missing IDs are silently ignored — the daemon's view may already be a
+  // step ahead of (or behind) Lambda's, which is fine because the next
+  // welcome snapshot reconciles authoritatively.
+  async removeMany(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    let removed = 0;
+    for (const id of ids) {
+      if (id && this.pairings[id]) {
+        delete this.pairings[id];
+        removed++;
+      }
+    }
+    if (removed > 0) await this._enqueueSave();
+    return removed;
+  }
+
+  // Flag a paired Alexa account as needing re-link (LWA refresh-token revoked,
+  // signalled by Lambda via the bridge `notification` channel). Creates a
+  // placeholder entry if the daemon has never observed a directive from this
+  // pairing — that case is unusual (Alexa fires Discovery seconds after a
+  // successful link) but possible, e.g. if the daemon was offline at the time.
+  async markRevoked(alexaUserId, revokedAt) {
+    if (!alexaUserId || typeof alexaUserId !== 'string') return;
+    const now = new Date().toISOString();
+    const existing = this.pairings[alexaUserId] || { firstSeen: now, count: 0 };
+    this.pairings[alexaUserId] = {
+      ...existing,
+      revoked:    true,
+      revokedAt:  revokedAt || now,
+    };
+    await this._enqueueSave();
+  }
+
+  // Apply a fresh `health-snapshot` from Lambda (delivered after the WSS
+  // welcome handshake). The snapshot is authoritative: it lists every
+  // currently-revoked Alexa account for this bridgeUserId. We clear any
+  // `revoked` flag on entries NOT in the list (handles the case where a
+  // user re-linked while the daemon was disconnected — Lambda already
+  // cleared the DDB flag on AcceptGrant) and set it on entries that ARE
+  // in the list.
+  async applySnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const revoked = Array.isArray(snapshot.revoked) ? snapshot.revoked : [];
+    const revokedById = new Map();
+    for (const r of revoked) {
+      if (r && typeof r.alexaUserId === 'string') {
+        revokedById.set(r.alexaUserId, r.revokedAt || null);
+      }
+    }
+    // Update known pairings.
+    for (const [id, row] of Object.entries(this.pairings)) {
+      if (revokedById.has(id)) {
+        row.revoked   = true;
+        row.revokedAt = revokedById.get(id) || row.revokedAt || new Date().toISOString();
+      } else if (row.revoked) {
+        // User re-linked while we weren't watching — clear the stale flag.
+        delete row.revoked;
+        delete row.revokedAt;
+      }
+    }
+    // Create placeholders for revoked pairings we've never seen a directive from.
+    const now = new Date().toISOString();
+    for (const [id, revokedAt] of revokedById) {
+      if (!this.pairings[id]) {
+        this.pairings[id] = {
+          firstSeen: now,
+          count:     0,
+          revoked:   true,
+          revokedAt: revokedAt || now,
+        };
+      }
+    }
+    await this._enqueueSave();
+  }
+
   // Public read for the CGI / local-http /pairings endpoint.
   list() {
     return Object.entries(this.pairings).map(([id, data]) => ({ id, ...data }));

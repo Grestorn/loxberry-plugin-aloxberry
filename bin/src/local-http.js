@@ -124,6 +124,7 @@ class LocalHttpServer {
       if (path === '/catalogue' && method === 'GET') return await this.getCatalogue(req, res);
       if (path === '/pair' && method === 'POST') return await this.postPair(req, res);
       if (path === '/reset-pairings' && method === 'POST') return await this.postResetPairings(req, res);
+      if (path === '/clean-revoked' && method === 'POST') return await this.postCleanRevoked(req, res);
       if (path === '/resync-state' && method === 'POST') return await this.postResyncState(res);
       if (path === '/log-level' && method === 'POST') return await this.postLogLevel(req, res);
 
@@ -297,9 +298,26 @@ class LocalHttpServer {
   }
 
   async postResetPairings(_req, res) {
+    // Order matters: ask Lambda to delete the DDB rows for our CURRENT
+    // bridgeUserId BEFORE rotating identity. After rotation the WSS is
+    // forced-reconnected and the new identity is presented; a clean-response
+    // on the old socket would be lost. If the clean call fails (Lambda
+    // unreachable, timeout), we proceed anyway — the user pressed a
+    // destructive button and the local rotation is what they actually
+    // asked for; DDB orphans are the same end-state as before this feature
+    // landed, just preserved for visibility.
+    let cleanResult = null;
+    if (this.bridgeClient) {
+      try {
+        cleanResult = await this.bridgeClient.requestClean('all');
+        this.log.info({ deleted: cleanResult.deleted }, 'DDB cleanup before identity rotation');
+      } catch (err) {
+        this.log.warn({ err: err.message }, 'DDB cleanup failed — proceeding with identity rotation anyway');
+      }
+    }
+
     // Rotate identity files on disk, swap the in-memory ref, force a fresh
-    // bridge connection so the new userId is presented. Existing DDB rows
-    // for the old userId become orphans (bridge will 504 dispatch attempts).
+    // bridge connection so the new userId is presented.
     const before = this.identityRef.current.userId;
     const next = identity.rotate({
       identityDir: this.identityRef.identityDir,
@@ -308,7 +326,7 @@ class LocalHttpServer {
     this.identityRef.current = next;
     this.log.warn({ before, after: next.userId }, 'identity rotated by user request');
 
-    // The observed pairings table now points at orphaned DDB rows. Wipe it.
+    // The observed pairings table now points at deleted/orphaned DDB rows.
     if (this.pairings) {
       await this.pairings.clear().catch((err) =>
         this.log.warn({ err: err.message }, 'pairings.clear failed'));
@@ -320,7 +338,36 @@ class LocalHttpServer {
     return writeJson(res, 200, {
       ok: true,
       userId: next.userId,
+      ddbDeleted: cleanResult ? cleanResult.deleted : null,
       note: 'all existing Alexa account links are now stale — re-link in the Alexa app',
+    });
+  }
+
+  // Remove only the broken (lwaRevoked) links: ask Lambda to delete those
+  // DDB rows, then strip the corresponding entries from pairings.json.
+  // Identity is NOT rotated — healthy linked accounts keep working.
+  async postCleanRevoked(_req, res) {
+    if (!this.bridgeClient) {
+      return writeJson(res, 503, { error: 'bridge_client_unavailable' });
+    }
+    let result;
+    try {
+      result = await this.bridgeClient.requestClean('revoked');
+    } catch (err) {
+      this.log.warn({ err: err.message }, '/clean-revoked: bridge request failed');
+      return writeJson(res, 502, { error: 'clean_failed', message: err.message });
+    }
+    let localRemoved = 0;
+    if (this.pairings && result.revokedRemoved.length > 0) {
+      localRemoved = await this.pairings.removeMany(result.revokedRemoved).catch((err) => {
+        this.log.warn({ err: err.message }, 'pairings.removeMany failed');
+        return 0;
+      });
+    }
+    return writeJson(res, 200, {
+      ok: true,
+      ddbDeleted: result.deleted,
+      localRemoved,
     });
   }
 }

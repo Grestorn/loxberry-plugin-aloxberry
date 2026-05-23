@@ -164,6 +164,23 @@ elsif ($action eq 'kill_pairings') {
         $flash_kind = 'error';
     }
 }
+elsif ($action eq 'clean_revoked') {
+    # Asks the daemon to ask Lambda to delete the broken (lwaRevoked=true)
+    # DDB rows for this bridgeUserId. The daemon also strips the matching
+    # entries from pairings.json on success. Healthy linked accounts are
+    # untouched — no identity rotation, no re-link required for them.
+    my $res = daemon_post('/clean-revoked');
+    if ($res->{ok}) {
+        my $deleted = $res->{ddbDeleted} // 0;
+        $flash      = ($L{'PAIRINGS.CLEAN_REVOKED_OK'} || 'Removed {count} broken Alexa link(s).');
+        $flash      =~ s/\{count\}/$deleted/g;
+        $flash_kind = ($deleted > 0) ? 'success' : 'info';
+    } else {
+        $flash      = ($L{'PAIRINGS.CLEAN_REVOKED_FAILED'} || 'Could not remove broken links: {err}');
+        $flash      =~ s/\{err\}/$res->{err}/;
+        $flash_kind = 'error';
+    }
+}
 elsif ($action eq 'save_settings') {
     my $url  = trim_str($cgi->param('bridge_url'));
     my $port = trim_str($cgi->param('local_http_port'));
@@ -245,7 +262,7 @@ my $daemon   = read_daemon_status();
 my $state    = read_state();
 my $userid   = read_userid();
 my $env      = read_daemon_env();
-my $pairings = ($action =~ /^(kill_pairings|pair)$/) ? read_pairings() : $pairings_initial;
+my $pairings = ($action =~ /^(kill_pairings|clean_revoked|pair)$/) ? read_pairings() : $pairings_initial;
 
 # ---- navbar --------------------------------------------------------------
 # LoxBerry::Web::lbheader reads `our %navbar` from this scope and renders it.
@@ -315,6 +332,49 @@ $template->param(
     # yet; a fresh "kill all pairings" also wipes this back to empty.
     HAS_PAIRINGS => (@$pairings ? 1 : 0),
     PAIRINGS     => $pairings,
+);
+
+# ---- Link health banner ---------------------------------------------------
+# Two distinct warning states the templates surface at the top of every page:
+#
+#   HEALTH_BRIDGE_DOWN   — the daemon's WSS connection to the bridge is down.
+#                          Means status updates aren't reaching Alexa right
+#                          now, regardless of any per-account state. While
+#                          the bridge is down the revocation list is by
+#                          definition stale (Lambda can't push fresh
+#                          notifications and the daemon can't refetch the
+#                          snapshot), so we hide HEALTH_REVOKED in that case
+#                          to avoid alarmist UI for state we can't verify.
+#
+#   HEALTH_REVOKED       — one or more linked Alexa accounts had their LWA
+#                          refresh-token revoked (Lambda flagged lwaRevoked
+#                          on the user row). The user must re-link the skill
+#                          in the Alexa app — there is no daemon-side
+#                          recovery path.
+#
+# The daemon being entirely off / not running is treated as bridge-down (no
+# connection = no traffic to Alexa); the banner copy directs to the Setup
+# tab where daemon control + bridge status live.
+my $bridge_down = (!$daemon->{running}) || (!$state->{bridge}{connected});
+my $revoked_count = grep { $_->{REVOKED} } @$pairings;
+
+# Resolve the singular/plural body once, with {count} substituted. The
+# templates have no string-formatting of their own (HTML::Template is value
+# substitution only), so we materialize the final sentence in Perl. Match
+# the existing {err}/{count} pattern used elsewhere in this CGI.
+my $revoked_body = '';
+if ($revoked_count == 1) {
+    $revoked_body = $L{'HEALTH.REVOKED_BODY_ONE'} || 'One Alexa account needs to be re-linked.';
+} elsif ($revoked_count > 1) {
+    $revoked_body = $L{'HEALTH.REVOKED_BODY_MANY'} || '{count} Alexa accounts need to be re-linked.';
+    $revoked_body =~ s/\{count\}/$revoked_count/g;
+}
+
+$template->param(
+    HEALTH_BRIDGE_DOWN   => $bridge_down                          ? 1 : 0,
+    HEALTH_REVOKED       => (!$bridge_down && $revoked_count > 0) ? 1 : 0,
+    HEALTH_REVOKED_COUNT => $revoked_count,
+    HEALTH_REVOKED_BODY  => $revoked_body,
 );
 
 # ---- devices-page-specific params -----------------------------------------
@@ -837,8 +897,11 @@ sub read_pairings {
     close $fh;
     my $data = eval { decode_json($json) };
     return [] unless ref $data eq 'HASH';
-    # pairings.json is { pairingId => { name, firstSeen, lastSeen, count, lastDirective } }.
+    # pairings.json is { pairingId => { name, firstSeen, lastSeen, count, lastDirective, revoked?, revokedAt? } }.
     # Flatten to a list and sort most-recent-first so the template loop is trivial.
+    # `revoked` is set by bin/src/pairings.js when Lambda flags an Alexa account
+    # as needing re-link (LWA refresh-token revoked). See HEALTH_REVOKED_COUNT
+    # below for the summary the UI banner reads.
     my @list;
     for my $id (keys %$data) {
         my $row = $data->{$id};
@@ -849,6 +912,8 @@ sub read_pairings {
             LAST_SEEN      => $row->{lastSeen}      // '',
             COUNT          => $row->{count}         // 0,
             LAST_DIRECTIVE => $row->{lastDirective} // '',
+            REVOKED        => $row->{revoked}     ? 1  : 0,
+            REVOKED_AT     => $row->{revokedAt}     // '',
         };
     }
     @list = sort { ($b->{LAST_SEEN} || '') cmp ($a->{LAST_SEEN} || '') } @list;

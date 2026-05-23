@@ -18,6 +18,24 @@
   <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
 </TMPL_IF>
 
+<TMPL_IF HEALTH_BRIDGE_DOWN>
+  <div class="ax-flash error">
+    <strong><TMPL_VAR NAME=HEALTH.BRIDGE_DOWN_TITLE></strong>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR NAME=HEALTH.BRIDGE_DOWN_BODY></p>
+    <p style="margin: 0.4rem 0 0;">
+      <a href="?page=status" class="ax-btn"><TMPL_VAR NAME=NAV.SETUP></a>
+    </p>
+  </div>
+</TMPL_IF>
+<TMPL_IF HEALTH_REVOKED>
+  <div class="ax-flash error">
+    <strong><TMPL_VAR NAME=HEALTH.REVOKED_TITLE></strong>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR HEALTH_REVOKED_BODY ESCAPE=HTML></p>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR NAME=HEALTH.REVOKED_STEPS></p>
+    <p style="margin: 0.6rem 0 0; color: #777; font-size: 0.85rem;"><TMPL_VAR NAME=HEALTH.REVOKED_WHY></p>
+  </div>
+</TMPL_IF>
+
 <!-- ============================================================ -->
 <!-- LoxBerry log sessions + per-plugin level (single source)     -->
 <!-- ============================================================ -->

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const routing = require('./routing');
 const dispatch = require('./dispatch');
 const pair = require('./pair');
+const notify = require('./notify');
 
 // HTTP route handlers.
 //
@@ -233,6 +234,46 @@ function handlePair(req, res, log) {
   return writeJson(res, 200, entry);
 }
 
+// Lambda → bridge: push a notification frame to a connected daemon. Same
+// auth shape as /dispatch (X-Bridge-Auth shared secret). Fire-and-forget —
+// the daemon refetches its current health on the next welcome, so a missed
+// notification is self-healing. Always returns 200 with an `ok` flag so
+// the caller (Lambda) doesn't have to distinguish "daemon offline" from
+// "delivered" for retry purposes.
+async function handleNotify(req, res, log) {
+  if (!BRIDGE_DISPATCH_SECRET) {
+    log.error('/notify called but BRIDGE_DISPATCH_SECRET is unset');
+    return writeJson(res, 503, { error: 'not_configured' });
+  }
+  if (!authMatches(req.headers['x-bridge-auth'], BRIDGE_DISPATCH_SECRET)) {
+    return writeJson(res, 401, { error: 'unauthorized' });
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req, MAX_DISPATCH_BODY_BYTES);
+  } catch (err) {
+    return writeJson(res, 400, { error: err.message });
+  }
+  if (!body || typeof body !== 'object') {
+    return writeJson(res, 400, { error: 'invalid_body' });
+  }
+  if (typeof body.userId !== 'string' || !USER_ID_PATTERN.test(body.userId)) {
+    return writeJson(res, 400, { error: 'invalid_userId' });
+  }
+  if (!body.notification || typeof body.notification !== 'object') {
+    return writeJson(res, 400, { error: 'invalid_notification' });
+  }
+
+  const result = notify.deliver(body.userId, body.notification);
+  if (result.ok) {
+    log.info({ kind: body.notification.kind }, 'notify delivered');
+    return writeJson(res, 200, { ok: true });
+  }
+  log.info({ kind: body.notification.kind, reason: result.reason }, 'notify dropped — daemon offline');
+  return writeJson(res, 200, { ok: false, reason: result.reason });
+}
+
 function handleProbe(req, res, log) {
   if (!BRIDGE_DISPATCH_SECRET) {
     log.error('/probe called but BRIDGE_DISPATCH_SECRET is unset');
@@ -280,6 +321,14 @@ function handleRequest(req, res, log) {
       if (!res.headersSent) {
         writeJson(res, 500, { error: 'internal' });
       }
+    });
+  }
+
+  if (path === '/notify') {
+    if (method !== 'POST') return methodNotAllowed(res, 'POST');
+    return handleNotify(req, res, log).catch((err) => {
+      log.error({ err: err.message }, '/notify: unexpected error');
+      if (!res.headersSent) writeJson(res, 500, { error: 'internal' });
     });
   }
 

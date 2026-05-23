@@ -54,6 +54,21 @@
   <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
 </TMPL_IF>
 
+<TMPL_IF HEALTH_BRIDGE_DOWN>
+  <div class="ax-flash error">
+    <strong><TMPL_VAR NAME=HEALTH.BRIDGE_DOWN_TITLE></strong>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR NAME=HEALTH.BRIDGE_DOWN_BODY></p>
+  </div>
+</TMPL_IF>
+<TMPL_IF HEALTH_REVOKED>
+  <div class="ax-flash error">
+    <strong><TMPL_VAR NAME=HEALTH.REVOKED_TITLE></strong>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR HEALTH_REVOKED_BODY ESCAPE=HTML></p>
+    <p style="margin: 0.4rem 0 0;"><TMPL_VAR NAME=HEALTH.REVOKED_STEPS></p>
+    <p style="margin: 0.6rem 0 0; color: #777; font-size: 0.85rem;"><TMPL_VAR NAME=HEALTH.REVOKED_WHY></p>
+  </div>
+</TMPL_IF>
+
 <!-- ============================================================ -->
 <!-- Status                                                       -->
 <!-- ============================================================ -->
@@ -202,6 +217,11 @@
         <TMPL_LOOP NAME=PAIRINGS>
           <tr style="border-bottom: 1px solid #eee;">
             <td style="padding: 0.35rem 0.5rem;">
+              <TMPL_IF NAME=REVOKED>
+                <span class="ax-pill ax-pill-bad" style="font-size: 0.7rem; margin-right: 0.4rem;"><TMPL_VAR NAME=HEALTH.REVOKED_BADGE></span>
+              <TMPL_ELSE>
+                <span class="ax-pill ax-pill-ok" style="font-size: 0.7rem; margin-right: 0.4rem;"><TMPL_VAR NAME=HEALTH.OK_BADGE></span>
+              </TMPL_IF>
               <TMPL_IF NAME=NAME><TMPL_VAR NAME=NAME ESCAPE=HTML><TMPL_ELSE><span class="ax-hint"><TMPL_VAR NAME=PAIRINGS.UNNAMED></span></TMPL_IF>
               <div class="ax-hint" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem;">
                 <TMPL_VAR NAME=ID ESCAPE=HTML>
@@ -222,6 +242,18 @@
       </tbody>
     </table>
     <div class="ax-hint" style="margin-top: 0.5rem;"><TMPL_VAR NAME=PAIRINGS.HINT></div>
+    <TMPL_IF HEALTH_REVOKED>
+      <form method="POST" style="margin-top: 0.75rem;">
+        <input type="hidden" name="page" value="status">
+        <input type="hidden" name="action" value="clean_revoked">
+        <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
+        <button type="submit" class="ax-btn"
+                <TMPL_UNLESS DAEMON_RUNNING>disabled title="<TMPL_VAR NAME=DAEMON.NOT_LISTENING ESCAPE=HTML>"</TMPL_UNLESS>>
+          <TMPL_VAR NAME=PAIRINGS.CLEAN_REVOKED_BTN>
+        </button>
+        <span class="ax-hint" style="margin-left: 0.6rem;"><TMPL_VAR NAME=PAIRINGS.CLEAN_REVOKED_HINT></span>
+      </form>
+    </TMPL_IF>
   <TMPL_ELSE>
     <p class="ax-hint"><TMPL_VAR NAME=PAIRINGS.EMPTY></p>
   </TMPL_IF>

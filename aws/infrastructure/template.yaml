@@ -327,6 +327,27 @@ Resources:
             ApiId: !Ref OAuthApi
             Method: POST
             Path: /event
+        # Bridge → Lambda: "what's the link-health for this bridgeUserId?"
+        # Called once per daemon WSS welcome handshake so the plugin's
+        # local view of revoked-account state is refreshed even when the
+        # /notify push channel missed events during downtime.
+        HealthQuery:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OAuthApi
+            Method: POST
+            Path: /health-query
+        # Bridge → Lambda: delete user rows for a bridgeUserId. Called when
+        # the user clicks "Remove broken links" (scope=revoked) or "Kill
+        # all Alexa pairings" (scope=all) in the plugin UI. The latter
+        # additionally rotates the daemon's identity, so the DDB cleanup
+        # here just stops the orphaned rows from accumulating forever.
+        Clean:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref OAuthApi
+            Method: POST
+            Path: /clean
 
   OAuthHandlerLogGroup:
     Type: AWS::Logs::LogGroup
