@@ -48,6 +48,20 @@ const DEFAULT_CLOSE_ACTION = { retry: true, reason: 'unexpected_close' };
 
 const WELCOME_TIMEOUT_MS = 10000;
 
+// Activity watchdog — catches the half-open TCP failure mode where the
+// bridge has closed its end (e.g. heartbeat timeout) but the daemon's TCP
+// path is dead, so the close frame never arrives. The WebSocket then stays
+// in readyState=OPEN forever and Alexa directives silently fail. The
+// threshold is 3× the bridge's HEARTBEAT_INTERVAL_MS (30s default), so
+// occasional jitter doesn't trip it; only sustained silence does.
+const ACTIVITY_TIMEOUT_MS = Number.parseInt(process.env.BRIDGE_MAX_IDLE_MS, 10) || 90000;
+const ACTIVITY_CHECK_MS = 30000;
+// TCP keepalive idle window. Belt-and-braces alongside the app-level
+// watchdog above — if the OS surfaces a dead peer first, ws fires 'close'
+// naturally and we go down the normal reconnect path. Node's default is
+// 2h, which is useless for a real-time control channel.
+const TCP_KEEPALIVE_IDLE_MS = 30000;
+
 class BridgeClient extends EventEmitter {
   constructor({ config, identity, state, log, directiveHandler, pairings }) {
     super();
@@ -90,6 +104,13 @@ class BridgeClient extends EventEmitter {
     // the wait can be longer (Lambda iterates DeleteCommand calls) so the
     // default timeout in requestClean() is higher.
     this.pendingCleans = new Map();
+
+    // Activity watchdog state. lastMessageAt is the Date.now() of the most
+    // recent inbound frame from the bridge (ping, directive, notification —
+    // anything). activityWatchdog is the periodic-check Interval. See the
+    // comment on ACTIVITY_TIMEOUT_MS for the failure mode this guards.
+    this.lastMessageAt = 0;
+    this.activityWatchdog = null;
   }
 
   start() {
@@ -129,6 +150,7 @@ class BridgeClient extends EventEmitter {
         clearTimeout(this.welcomeTimer);
         this.welcomeTimer = null;
       }
+      this.stopActivityWatchdog();
       if (this.ws) {
         try { this.ws.close(1000, 'master switch off'); } catch { /* ignore */ }
       }
@@ -154,6 +176,7 @@ class BridgeClient extends EventEmitter {
       clearTimeout(this.welcomeTimer);
       this.welcomeTimer = null;
     }
+    this.stopActivityWatchdog();
     if (this.ws) {
       try {
         this.ws.close(1000, 'daemon shutdown');
@@ -193,6 +216,20 @@ class BridgeClient extends EventEmitter {
 
   onOpen(ws) {
     if (ws !== this.ws) return; // stale
+
+    // TCP keepalive on the underlying socket — if the OS detects the peer
+    // is gone, ws fires 'close' and we reconnect. Probes start after
+    // TCP_KEEPALIVE_IDLE_MS of idle; subsequent probe interval and count
+    // come from OS defaults (per-socket override isn't portable). The
+    // activity watchdog above is the primary defense; this is backup.
+    if (ws._socket && typeof ws._socket.setKeepAlive === 'function') {
+      try {
+        ws._socket.setKeepAlive(true, TCP_KEEPALIVE_IDLE_MS);
+      } catch (err) {
+        this.log.debug({ err: err.message }, 'TCP keepalive enable failed (non-fatal)');
+      }
+    }
+
     this.log.info('socket open — sending hello');
 
     // Send hello immediately. Bridge expects it within HELLO_TIMEOUT_MS
@@ -211,6 +248,10 @@ class BridgeClient extends EventEmitter {
   }
 
   async onMessage(data) {
+    // Watchdog liveness signal: any inbound frame (even one that fails
+    // parsing below) proves the bridge → daemon path is still moving bytes.
+    this.lastMessageAt = Date.now();
+
     let msg;
     try {
       msg = JSON.parse(data.toString('utf8'));
@@ -273,6 +314,7 @@ class BridgeClient extends EventEmitter {
       },
     });
     this.log.info('bridge handshake complete');
+    this.startActivityWatchdog();
     this.emit('connected');
   }
 
@@ -403,6 +445,7 @@ class BridgeClient extends EventEmitter {
       clearTimeout(this.welcomeTimer);
       this.welcomeTimer = null;
     }
+    this.stopActivityWatchdog();
     // Drain any pending pair-publish awaiters — they can't be answered if the
     // socket is gone. Caller can retry once the new connection comes up.
     for (const [, awaiter] of this.pendingPairPublishes) {
@@ -599,6 +642,40 @@ class BridgeClient extends EventEmitter {
     // 'close' will follow with a code; do the state-mutation there to avoid
     // duplicate updates. Just log the underlying error here.
     this.log.warn({ err: err.message }, 'bridge socket error');
+  }
+
+  // Half-open-TCP escape hatch. The bridge pings us every ~30s; under
+  // healthy conditions lastMessageAt advances continuously. If nothing
+  // inbound has arrived for ACTIVITY_TIMEOUT_MS, the underlying TCP path
+  // is presumed dead even though readyState may still say OPEN. We use
+  // terminate() (not close()) so we don't wait on a close handshake the
+  // dead peer will never finish — close code 1006 is then handled by the
+  // existing DEFAULT_CLOSE_ACTION.retry path, which schedules a reconnect.
+  startActivityWatchdog() {
+    if (this.activityWatchdog) return;
+    this.lastMessageAt = Date.now();
+    this.activityWatchdog = setInterval(() => {
+      const idleMs = Date.now() - this.lastMessageAt;
+      if (idleMs > ACTIVITY_TIMEOUT_MS) {
+        this.log.warn(
+          { idleMs, timeoutMs: ACTIVITY_TIMEOUT_MS },
+          'no inbound traffic from bridge — terminating dead socket (half-open?)',
+        );
+        try { if (this.ws) this.ws.terminate(); } catch { /* ignore */ }
+      }
+    }, ACTIVITY_CHECK_MS);
+    // Don't keep the event loop alive just for this timer — daemon shutdown
+    // should still exit promptly even if stop() somehow misses us.
+    if (typeof this.activityWatchdog.unref === 'function') {
+      this.activityWatchdog.unref();
+    }
+  }
+
+  stopActivityWatchdog() {
+    if (this.activityWatchdog) {
+      clearInterval(this.activityWatchdog);
+      this.activityWatchdog = null;
+    }
   }
 
   scheduleReconnect() {
