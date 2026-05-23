@@ -53,6 +53,18 @@ const RAW_EVENT_HEX_BYTES = 256; // preview cap per frame
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
+// Activity watchdog — same half-open TCP escape hatch as bridge-client.js,
+// applied here because a half-open WSS to the Miniserver doesn't just break
+// Alexa control: the daemon never closes the TCP connection on the
+// Miniserver's side, leaving a CLOSE_WAIT slot occupied until the Loxone
+// stack itself times out (long minutes). Repeated occurrences exhaust the
+// embedded socket table, which is the suspected cause of Ethernet-stack
+// hangs we've seen on Gen 2 Miniservers. Loxone's own ID_KEEPALIVE cadence
+// defaults to ~120s, so 300s leaves plenty of room for quiet periods.
+const MS_ACTIVITY_TIMEOUT_MS = Number.parseInt(process.env.MS_MAX_IDLE_MS, 10) || 300_000;
+const MS_ACTIVITY_CHECK_MS = 60_000;
+const MS_TCP_KEEPALIVE_IDLE_MS = 30_000;
+
 class MiniserverWsClient extends EventEmitter {
   constructor({ msConfig, publicKey, log }) {
     super();
@@ -72,6 +84,14 @@ class MiniserverWsClient extends EventEmitter {
     // encrypted commands echo the inner path under one form, plain
     // commands under another, with no robust prefix to predict for both.
     this.responseQueue = [];               // array of {resolve, reject, timer, decryptResponse}
+
+    // Activity watchdog state. lastMessageAt is updated on every inbound
+    // frame (keepalive, header, payload); see MS_ACTIVITY_TIMEOUT_MS for
+    // the failure mode this guards. openedAt feeds the connection-duration
+    // field on the 'closed' log line (forensic for socket-leak analysis).
+    this.lastMessageAt = 0;
+    this.activityWatchdog = null;
+    this.openedAt = 0;
   }
 
   // Connect, run keyexchange. Resolves once AES session is established
@@ -94,6 +114,19 @@ class MiniserverWsClient extends EventEmitter {
       this.ws.once('error', (err) => { clearTimeout(timer); reject(err); });
     });
 
+    // TCP socket is now open. Record the timestamp for connection-duration
+    // logging on close, and enable TCP keepalive — backup for the activity
+    // watchdog below (Node's default 2h idle is useless for a control stream).
+    this.openedAt = Date.now();
+    if (this.ws._socket && typeof this.ws._socket.setKeepAlive === 'function') {
+      try {
+        this.ws._socket.setKeepAlive(true, MS_TCP_KEEPALIVE_IDLE_MS);
+      } catch (err) {
+        this.log.debug({ err: err.message }, 'TCP keepalive enable failed (non-fatal)');
+      }
+    }
+    this.log.info({ url }, 'miniserver ws opened');
+
     // Wire up steady-state handlers.
     this.ws.on('message', (data, isBinary) => this.handleMessage(data, isBinary));
     this.ws.on('close', (code, reason) => this.handleClose(code, reason));
@@ -102,11 +135,16 @@ class MiniserverWsClient extends EventEmitter {
     this.log.info('socket open — performing key exchange');
     await this.performKeyExchange();
     this.log.info('key exchange complete; AES session established');
+
+    // Start the activity watchdog only once the full session is up — before
+    // key exchange there's no expected inbound traffic cadence to monitor.
+    this.startActivityWatchdog();
   }
 
   async stop({ code = 1000, reason = 'daemon shutdown' } = {}) {
     if (this.stopped) return;
     this.stopped = true;
+    this.stopActivityWatchdog();
     // Reject any in-flight commands so callers don't hang.
     while (this.responseQueue.length) {
       const p = this.responseQueue.shift();
@@ -186,6 +224,11 @@ class MiniserverWsClient extends EventEmitter {
   // ----- inbound message dispatch -----------------------------------------
 
   handleMessage(data, isBinary) {
+    // Watchdog liveness signal: any inbound frame — even a malformed one
+    // we'd drop below — proves the bridge → daemon path is still moving
+    // bytes. Update before any parsing.
+    this.lastMessageAt = Date.now();
+
     // Loxone protocol invariant:
     //   - 8-byte BINARY frame = header (start of a header/payload pair),
     //     UNLESS we're already expecting a payload (which can be binary
@@ -325,7 +368,12 @@ class MiniserverWsClient extends EventEmitter {
 
   handleClose(code, reasonBuf) {
     const reason = reasonBuf ? reasonBuf.toString() : '';
-    this.log.info({ code, reason }, 'miniserver ws closed');
+    this.stopActivityWatchdog();
+    // wasOpenForMs is for forensics on socket-leak / reconnect-storm
+    // analysis — quickly tells you if a connection died young (TCP error)
+    // versus expired naturally (e.g. token timeout, network blip).
+    const wasOpenForMs = this.openedAt ? Date.now() - this.openedAt : null;
+    this.log.info({ code, reason, wasOpenForMs }, 'miniserver ws closed');
     while (this.responseQueue.length) {
       const p = this.responseQueue.shift();
       clearTimeout(p.timer);
@@ -338,6 +386,37 @@ class MiniserverWsClient extends EventEmitter {
   handleError(err) {
     this.log.warn({ err: err.message }, 'miniserver ws error');
     this.emit('error', err);
+  }
+
+  // Half-open TCP escape hatch. The Miniserver sends ID_KEEPALIVE roughly
+  // every ~120s when idle; if MS_ACTIVITY_TIMEOUT_MS elapses with no
+  // inbound frames at all, the underlying TCP path is presumed dead. We
+  // use terminate() (not close()) so we don't wait on a close handshake
+  // the dead peer can't complete — that handshake-on-dead-path is the
+  // exact failure mode that leaves CLOSE_WAIT slots on the Miniserver.
+  startActivityWatchdog() {
+    if (this.activityWatchdog) return;
+    this.lastMessageAt = Date.now();
+    this.activityWatchdog = setInterval(() => {
+      const idleMs = Date.now() - this.lastMessageAt;
+      if (idleMs > MS_ACTIVITY_TIMEOUT_MS) {
+        this.log.warn(
+          { idleMs, timeoutMs: MS_ACTIVITY_TIMEOUT_MS },
+          'no inbound traffic from miniserver — terminating dead socket (half-open?)',
+        );
+        try { if (this.ws) this.ws.terminate(); } catch { /* ignore */ }
+      }
+    }, MS_ACTIVITY_CHECK_MS);
+    if (typeof this.activityWatchdog.unref === 'function') {
+      this.activityWatchdog.unref();
+    }
+  }
+
+  stopActivityWatchdog() {
+    if (this.activityWatchdog) {
+      clearInterval(this.activityWatchdog);
+      this.activityWatchdog = null;
+    }
   }
 }
 

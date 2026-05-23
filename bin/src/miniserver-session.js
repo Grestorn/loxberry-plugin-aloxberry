@@ -42,6 +42,12 @@ const REFRESH_MIN_MS = 60_000;
 // Reconnect backoff (matches the bridge-client values).
 const RECONNECT_INITIAL_MS = 1_000;
 const RECONNECT_MAX_MS = 60_000;
+// When the Miniserver itself signals overload (HTTP 503), aggressive
+// retries make things worse — they keep adding pressure to a TCP socket
+// table that's already at capacity (suspected cause of the Ethernet-stack
+// hangs we saw 2026-05-2x). Floor the next reconnect at this value when
+// 503 is seen, so we step back and give the embedded stack room to recover.
+const OVERLOAD_BACKOFF_FLOOR_MS = 30_000;
 
 class MiniserverSession extends EventEmitter {
   constructor({
@@ -117,6 +123,24 @@ class MiniserverSession extends EventEmitter {
       this.currentBackoffMs = this.reconnectInitialMs;
     } catch (err) {
       this.log.warn({ err: err.message }, 'connect cycle failed');
+
+      // 503 means "Miniserver socket table is full". Hitting it harder
+      // makes the situation worse. Raise the floor for the next attempt
+      // so we back off long enough for the embedded stack to drain
+      // CLOSE_WAIT/TIME_WAIT slots. ws library exposes the upgrade status
+      // as err.statusCode in some cases; in others only err.message has it
+      // (format: "Unexpected server response: 503"). Check both.
+      const statusCode = err?.statusCode;
+      const is503 = statusCode === 503
+        || /(?:^|\D)503(?:\D|$)/.test(err?.message || '');
+      if (is503 && this.currentBackoffMs < OVERLOAD_BACKOFF_FLOOR_MS) {
+        this.log.warn(
+          { wasMs: this.currentBackoffMs, floorMs: OVERLOAD_BACKOFF_FLOOR_MS },
+          'Miniserver returned 503 (socket pressure) — raising reconnect floor',
+        );
+        this.currentBackoffMs = OVERLOAD_BACKOFF_FLOOR_MS;
+      }
+
       try { await this.wsClient?.stop(); } catch { /* ignore */ }
       this.wsClient = null;
       this.emit('disconnected', { reason: err.message });
