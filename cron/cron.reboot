@@ -12,6 +12,14 @@ LBPLOGDIR="$LBHOMEDIR/log/plugins/$PLUGINNAME"
 
 mkdir -p "$LBPLOGDIR"
 
+# Give the network stack a moment to come up before we try to resolve the
+# Miniserver hostname. Without this the daemon's bootstrap fetch races DNS
+# and dies with EAI_AGAIN on slow boots.
+STARTUP_DELAY=60
+echo "[$(date -Iseconds)] cron.reboot: waiting ${STARTUP_DELAY}s for network" \
+    >> "$LBPLOGDIR/cron-reboot.log"
+sleep "$STARTUP_DELAY"
+
 # Tiny audit trail so it's obvious *why* the daemon is running after a reboot.
 echo "[$(date -Iseconds)] cron.reboot: starting daemon via control.sh" \
     >> "$LBPLOGDIR/cron-reboot.log"

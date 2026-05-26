@@ -42,6 +42,13 @@ const { LogLevelWatcher } = require('./loglevel-watcher');
 
 const STATE_FLUSH_INTERVAL_MS = 30_000;
 
+// Bootstrap retry backoff (ms). Used when the initial Miniserver bootstrap
+// (fetchPublicKey + MiniserverSession construction) fails with anything —
+// most commonly ENETUNREACH / EAI_AGAIN on cold boot, before the network
+// stack has finished coming up. The last entry caps the interval forever.
+// See `bootstrapMiniserverSession` below for the rationale on retrying.
+const BOOTSTRAP_RETRY_BACKOFF_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
+
 // ----- Config -------------------------------------------------------------
 
 const config = loadConfig();
@@ -74,6 +81,7 @@ let session = null;
 let stateFlushTimer = null;
 let devicesConfigRef = null;
 let logLevelWatcher = null;
+let bootstrapRetryTimer = null;
 
 // ----- Main ---------------------------------------------------------------
 
@@ -99,48 +107,87 @@ async function main() {
   const daemonUuid = loadOrCreateDaemonUuid(config.dataDir);
   log.info({ daemonUuid }, 'daemon UUID loaded');
 
-  try {
-    const [msConfig] = await loadMsConfig();
-    const pem = await fetchPublicKey(msConfig);
-    const publicKey = crypto.createPublicKey(pem);
-    const tokenStore = new MiniserverTokenStore({ dataDir: config.dataDir, log });
+  // Why a retry wrapper here: the original code constructed `session` only on
+  // success of fetchPublicKey, so any failure at the probe stage (commonly
+  // ENETUNREACH / EAI_AGAIN on cold boot before the network is up, or a
+  // brief LAN blip later) left `session` undefined forever — meaning the
+  // WS subscription never started AND `MiniserverSession`'s own reconnect
+  // loop never got a chance to recover. The skill would keep working via
+  // the per-directive Perl helper, but live state events would silently
+  // never reach the daemon. So: retry bootstrap with exponential backoff
+  // until it succeeds, clear lastError on success.
+  let bootstrapAttempt = 0;
+  const bootstrapMiniserverSession = async () => {
+    bootstrapAttempt += 1;
+    try {
+      const [msConfig] = await loadMsConfig();
+      const pem = await fetchPublicKey(msConfig);
+      const publicKey = crypto.createPublicKey(pem);
+      const tokenStore = new MiniserverTokenStore({ dataDir: config.dataDir, log });
 
-    session = new MiniserverSession({
-      msConfig, publicKey, daemonUuid, tokenStore, stateCache, log,
-      getCredentials: async () => {
-        // Re-read fresh from LoxBerry's config each time we need creds (rare —
-        // only on first auth or after a token kill). Pass_RAW handling lives
-        // in lox-getconfig.pl.
-        const [withCreds] = await loadWithCredentials();
-        return withCreds.getCredentialsForAuth();
-      },
-    });
-    session.on('authenticated', ({ viaCachedToken }) => {
-      log.info({ viaCachedToken }, 'miniserver authenticated');
-    });
-    session.on('subscribed', async () => {
-      await state.update({ miniserver: { connected: true, lastError: null } });
-    });
-    session.on('disconnected', async (info) => {
-      await state.update({
-        miniserver: {
-          connected: false,
-          lastError: info?.reason || (info?.code ? `code ${info.code}` : 'disconnected'),
+      session = new MiniserverSession({
+        msConfig, publicKey, daemonUuid, tokenStore, stateCache, log,
+        getCredentials: async () => {
+          // Re-read fresh from LoxBerry's config each time we need creds (rare —
+          // only on first auth or after a token kill). Pass_RAW handling lives
+          // in lox-getconfig.pl.
+          const [withCreds] = await loadWithCredentials();
+          return withCreds.getCredentialsForAuth();
         },
       });
-    });
-    session.on('token-refreshed', (info) => {
-      log.info(info, 'miniserver token refreshed');
-    });
+      session.on('authenticated', ({ viaCachedToken }) => {
+        log.info({ viaCachedToken }, 'miniserver authenticated');
+      });
+      session.on('subscribed', async () => {
+        await state.update({ miniserver: { connected: true, lastError: null } });
+      });
+      session.on('disconnected', async (info) => {
+        await state.update({
+          miniserver: {
+            connected: false,
+            lastError: info?.reason || (info?.code ? `code ${info.code}` : 'disconnected'),
+          },
+        });
+      });
+      session.on('token-refreshed', (info) => {
+        log.info(info, 'miniserver token refreshed');
+      });
 
-    // Fire-and-forget — _connectOnce handles its own errors and reschedules.
-    session.start().catch((err) => {
-      log.warn({ err: err.message }, 'miniserver session start threw — reconnect loop is on');
-    });
-  } catch (err) {
-    log.warn({ err: err.message }, 'miniserver bootstrap failed — daemon stays up; bridge still active');
-    await state.update({ miniserver: { connected: false, lastError: `bootstrap: ${err.message}` } });
-  }
+      // Bootstrap succeeded — clear the sticky bootstrap error. The CGI
+      // status panel was otherwise showing the original ENETUNREACH string
+      // forever even though we'd recovered. The `subscribed` handler will
+      // flip `connected` to true once the WS handshake finishes.
+      await state.update({ miniserver: { lastError: null } });
+      if (bootstrapAttempt > 1) {
+        log.info({ attempt: bootstrapAttempt }, 'miniserver bootstrap succeeded after retry');
+      }
+
+      // Fire-and-forget — _connectOnce handles its own errors and reschedules.
+      session.start().catch((err) => {
+        log.warn({ err: err.message }, 'miniserver session start threw — reconnect loop is on');
+      });
+    } catch (err) {
+      // Pick the next backoff slot; clamp to the last (cap) entry.
+      const slot = Math.min(bootstrapAttempt - 1, BOOTSTRAP_RETRY_BACKOFF_MS.length - 1);
+      const delayMs = BOOTSTRAP_RETRY_BACKOFF_MS[slot];
+      log.warn(
+        { err: err.message, attempt: bootstrapAttempt, retryInMs: delayMs },
+        'miniserver bootstrap failed — daemon stays up; bridge still active; will retry',
+      );
+      await state.update({ miniserver: { connected: false, lastError: `bootstrap: ${err.message}` } });
+      // .unref() so a pending retry never blocks process exit.
+      bootstrapRetryTimer = setTimeout(() => {
+        bootstrapRetryTimer = null;
+        bootstrapMiniserverSession().catch((e) => {
+          // bootstrapMiniserverSession swallows its own errors; this catch
+          // is belt-and-braces against a future refactor regression.
+          log.error({ err: e.message }, 'bootstrap retry threw unexpectedly');
+        });
+      }, delayMs);
+      bootstrapRetryTimer.unref();
+    }
+  };
+  await bootstrapMiniserverSession();
 
   // --- Structure cache (LoxAPP3.json) -------------------------------------
   // Load from disk synchronously-ish so /catalogue has SOMETHING to return
@@ -300,6 +347,7 @@ async function shutdown(signal) {
   log.info({ signal }, 'shutdown requested');
 
   if (stateFlushTimer) clearInterval(stateFlushTimer);
+  if (bootstrapRetryTimer) { clearTimeout(bootstrapRetryTimer); bootstrapRetryTimer = null; }
   if (logLevelWatcher) logLevelWatcher.stop();
 
   // Stop in reverse boot order — local-http first (no more inbound), then
