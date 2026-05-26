@@ -25,6 +25,8 @@ const {
   log,
 } = require('@aloxberry/shared');
 
+const { pickLocale, normalizeLocale, t } = require('./i18n');
+
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
@@ -207,6 +209,9 @@ exports._test = {
   parseClientCredentials,
   timingSafeEqualStrings,
   isAllowedRedirectUri,
+  pickLocale,
+  normalizeLocale,
+  t,
 };
 
 exports.handler = async (event, context) => {
@@ -245,27 +250,32 @@ async function handleAuthorizeGet(event) {
     response_type, client_id, redirect_uri, state, scope,
     code_challenge, code_challenge_method,
   } = params;
+  // Detect once from Accept-Language; threaded into the form so the POST
+  // round-trip stays in the same language even if the WebView drops the
+  // header (some Alexa-app WebViews do on POST).
+  const locale = pickLocale(headerValue(event, 'accept-language'));
 
   if (response_type !== 'code') {
-    return errorRedirect(redirect_uri, state, 'unsupported_response_type');
+    return errorRedirect(redirect_uri, state, 'unsupported_response_type', locale);
   }
   if (!redirect_uri || !isAllowedRedirectUri(redirect_uri)) {
     // Cannot redirect — the redirect_uri itself is invalid. Render an error page.
-    return htmlResponse(400, renderErrorPage('Invalid or untrusted redirect_uri.'));
+    return htmlResponse(400, renderErrorPage(t(locale, 'error.invalid_redirect'), locale));
   }
   if (!state) {
-    return errorRedirect(redirect_uri, '', 'invalid_request');
+    return errorRedirect(redirect_uri, '', 'invalid_request', locale);
   }
   // If PKCE is in play, we only accept S256. Reject `plain`/unknown up
   // front (per RFC 7636 §4.3) rather than silently downgrading.
   if (code_challenge && code_challenge_method && code_challenge_method !== 'S256') {
-    return errorRedirect(redirect_uri, state, 'invalid_request');
+    return errorRedirect(redirect_uri, state, 'invalid_request', locale);
   }
 
   return htmlResponse(200, renderAuthorizeForm({
     redirect_uri, state, client_id, scope,
     code_challenge: code_challenge || '',
     code_challenge_method: code_challenge ? 'S256' : '',
+    locale,
   }));
 }
 
@@ -279,39 +289,46 @@ async function handleAuthorizePost(event) {
   const clientId = form.client_id || '';
   const codeChallenge = form.code_challenge || '';
   const codeChallengeMethod = codeChallenge ? 'S256' : '';
+  // Locale resolution order: explicit hidden form field (set on the original
+  // GET render) → Accept-Language → English. The form field is the primary
+  // signal because some Alexa-app WebViews drop Accept-Language on POST.
+  // normalizeLocale clamps any tampered value to a known locale before it
+  // re-enters HTML attributes.
+  const locale = normalizeLocale(form.locale)
+    || pickLocale(headerValue(event, 'accept-language'));
   // Carried into every error re-render so a user retry (bad pair code etc.)
-  // doesn't silently drop the PKCE binding or client_id.
+  // doesn't silently drop the PKCE binding, client_id, or locale.
   const carry = {
     redirect_uri, state, client_id: clientId, scope: form.scope || '',
     code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod,
+    locale,
   };
   // Normalize: trim and uppercase. The form's JS already uppercases on input,
   // but a paste from somewhere weird or a no-JS submission should still work.
   const pairCode = (form.pairCode || '').trim().toUpperCase();
 
   if (!redirect_uri || !isAllowedRedirectUri(redirect_uri)) {
-    return htmlResponse(400, renderErrorPage('Invalid or untrusted redirect_uri.'));
+    return htmlResponse(400, renderErrorPage(t(locale, 'error.invalid_redirect'), locale));
   }
   if (!state) {
-    return errorRedirect(redirect_uri, '', 'invalid_request');
+    return errorRedirect(redirect_uri, '', 'invalid_request', locale);
   }
   // Defense in depth: a forged POST could carry a non-S256 method even
   // though GET rejects it. Refuse rather than store a weak binding.
   if (codeChallenge && form.code_challenge_method && form.code_challenge_method !== 'S256') {
-    return errorRedirect(redirect_uri, state, 'invalid_request');
+    return errorRedirect(redirect_uri, state, 'invalid_request', locale);
   }
   if (!pairCode) {
     return htmlResponse(400, renderAuthorizeForm({
       ...carry,
-      error: 'A pair code is required. Generate one in the Aloxberry plugin\'s web UI.',
+      error: t(locale, 'auth_form.err_pair_required'),
       values: { ...form, pairCode },
     }));
   }
   if (!PAIR_CODE_PATTERN.test(pairCode)) {
     return htmlResponse(400, renderAuthorizeForm({
       ...carry,
-      error: 'Pair code must be exactly 10 characters from the set ' +
-             'A-Z (no I, O) and 2-9. Check for typos and try again.',
+      error: t(locale, 'auth_form.err_pair_bad_format'),
       values: { ...form, pairCode },
     }));
   }
@@ -324,16 +341,16 @@ async function handleAuthorizePost(event) {
   try { bridgeSecret = await getBridgeDispatchSecret(); }
   catch (err) {
     log.error('oauth.bridge.ssm_failed', { error: err.message });
-    return htmlResponse(500, renderErrorPage('Server configuration error — please retry shortly.'));
+    return htmlResponse(500, renderErrorPage(t(locale, 'error.config_retry'), locale));
   }
   if (!BRIDGE_URL || !bridgeSecret) {
     log.error('oauth.bridge.unconfigured', {
       hasBridgeUrl: !!BRIDGE_URL, hasBridgeSecret: !!bridgeSecret,
     });
-    return htmlResponse(500, renderErrorPage('Bridge is not configured. Contact the operator.'));
+    return htmlResponse(500, renderErrorPage(t(locale, 'error.bridge_unconfigured'), locale));
   }
 
-  const redeemed = await redeemPairCode(pairCode, bridgeSecret);
+  const redeemed = await redeemPairCode(pairCode, bridgeSecret, locale);
   if (!redeemed.ok) {
     log.warn('oauth.pair.redeem_failed', { reason: redeemed.reason, status: redeemed.status });
     return htmlResponse(400, renderAuthorizeForm({
@@ -364,7 +381,7 @@ async function handleAuthorizePost(event) {
         distinctInstalls: installs.size,
         bridgeUserId: redeemed.userId,
       });
-      return htmlResponse(403, renderBetaFullPage(limit));
+      return htmlResponse(403, renderBetaFullPage(limit, locale));
     }
     log.info('oauth.beta.cap_ok', {
       limit,
@@ -1066,7 +1083,7 @@ function timingSafeEqualStrings(a, b) {
 // userMessage}. The userMessage is what gets rendered to the user — actionable
 // text without leaking bridge internals.
 
-async function redeemPairCode(code, bridgeSecret) {
+async function redeemPairCode(code, bridgeSecret, locale) {
   const url = `${BRIDGE_URL}/pair?code=${encodeURIComponent(code)}`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), PAIR_FETCH_TIMEOUT_MS);
@@ -1084,7 +1101,7 @@ async function redeemPairCode(code, bridgeSecret) {
       if (!body || typeof body.userId !== 'string' || typeof body.skillSecret !== 'string') {
         return {
           ok: false, status: 200, reason: 'malformed_body',
-          userMessage: 'Bridge returned an unexpected response. Try again or contact the operator.',
+          userMessage: t(locale, 'pair.err_bridge_malformed'),
         };
       }
       return { ok: true, userId: body.userId, skillSecret: body.skillSecret };
@@ -1092,38 +1109,35 @@ async function redeemPairCode(code, bridgeSecret) {
     if (res.status === 404) {
       return {
         ok: false, status: 404, reason: 'not_found',
-        userMessage:
-          'That code is not recognized. It may have expired (codes last 10 minutes), ' +
-          'already been used, or never been generated. Go back to the Aloxberry plugin\'s ' +
-          'web UI, generate a fresh code, and paste it here.',
+        userMessage: t(locale, 'pair.err_not_found'),
       };
     }
     if (res.status === 401) {
       return {
         ok: false, status: 401, reason: 'unauthorized',
-        userMessage: 'Bridge configuration error (auth failed). Please contact the operator.',
+        userMessage: t(locale, 'pair.err_bridge_unauthorized'),
       };
     }
     if (res.status === 503) {
       return {
         ok: false, status: 503, reason: 'bridge_not_configured',
-        userMessage: 'Bridge is not yet configured. Please try again later.',
+        userMessage: t(locale, 'pair.err_bridge_not_configured'),
       };
     }
     return {
       ok: false, status: res.status, reason: `http_${res.status}`,
-      userMessage: `Bridge returned an unexpected HTTP ${res.status}. Try again shortly.`,
+      userMessage: t(locale, 'pair.err_http_status', { status: res.status }),
     };
   } catch (err) {
     if (err.name === 'AbortError') {
       return {
         ok: false, reason: 'timeout',
-        userMessage: `Bridge did not respond within ${PAIR_FETCH_TIMEOUT_MS}ms. Try again.`,
+        userMessage: t(locale, 'pair.err_timeout', { ms: PAIR_FETCH_TIMEOUT_MS }),
       };
     }
     return {
       ok: false, reason: err.message,
-      userMessage: `Could not reach the bridge: ${err.message}. Try again in a minute.`,
+      userMessage: t(locale, 'pair.err_unreachable', { error: err.message }),
     };
   } finally {
     clearTimeout(timer);
@@ -1296,9 +1310,12 @@ function redirectResponse(location) {
   };
 }
 
-function errorRedirect(redirectUri, state, errorCode) {
+function errorRedirect(redirectUri, state, errorCode, locale) {
   if (!redirectUri || !isAllowedRedirectUri(redirectUri)) {
-    return htmlResponse(400, renderErrorPage(`OAuth error: ${errorCode}`));
+    return htmlResponse(400, renderErrorPage(
+      t(locale, 'error.oauth_generic', { code: errorCode }),
+      locale,
+    ));
   }
   const u = new URL(redirectUri);
   u.searchParams.set('error', errorCode);
@@ -1313,15 +1330,16 @@ function errorRedirect(redirectUri, state, errorCode) {
 function renderAuthorizeForm({
   redirect_uri, state, client_id = '', scope = '',
   code_challenge = '', code_challenge_method = '',
-  error = '', values = {},
+  error = '', values = {}, locale,
 }) {
+  const lang = normalizeLocale(locale);
   const v = (k) => escapeHtml(values[k] || '');
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Link Aloxberry to Alexa</title>
+  <title>${t(lang, 'auth_form.title')}</title>
   <style>
     :root { color-scheme: light dark; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1350,15 +1368,14 @@ function renderAuthorizeForm({
   </style>
 </head>
 <body>
-  <h1>Link your Aloxberry plugin to Alexa</h1>
+  <h1>${t(lang, 'auth_form.heading')}</h1>
   <p class="lead">
-    To link, enter the <strong>10-character pair code</strong> from the
-    Aloxberry plugin's web UI. The code is one-shot and expires after 10 minutes.
+    ${t(lang, 'auth_form.lead')}
   </p>
   <ol>
-    <li>Open your LoxBerry → Plugins → Aloxberry.</li>
-    <li>Click <em>Show pair code</em>.</li>
-    <li>Type or paste the 10 characters below.</li>
+    <li>${t(lang, 'auth_form.step1')}</li>
+    <li>${t(lang, 'auth_form.step2')}</li>
+    <li>${t(lang, 'auth_form.step3')}</li>
   </ol>
   ${error ? `<div class="err">${escapeHtml(error)}</div>` : ''}
   <form method="POST" action="/authorize" autocomplete="off">
@@ -1368,8 +1385,9 @@ function renderAuthorizeForm({
     <input type="hidden" name="scope" value="${escapeHtml(scope)}">
     <input type="hidden" name="code_challenge" value="${escapeHtml(code_challenge)}">
     <input type="hidden" name="code_challenge_method" value="${escapeHtml(code_challenge_method)}">
+    <input type="hidden" name="locale" value="${escapeHtml(lang)}">
 
-    <label for="pairCode">Pair code</label>
+    <label for="pairCode">${t(lang, 'auth_form.label_pair_code')}</label>
     <input id="pairCode" type="text" name="pairCode" required
            minlength="10" maxlength="10"
            pattern="[A-HJ-NP-Z2-9]{10}"
@@ -1380,15 +1398,15 @@ function renderAuthorizeForm({
            oninput="this.value=this.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '')"
            value="${v('pairCode')}">
     <div class="hint">
-      10 characters: A-Z (no I, O) and 2-9. Lowercase is converted automatically.
+      ${t(lang, 'auth_form.hint_pair_code')}
     </div>
 
-    <label for="friendlyName">Friendly name (optional)</label>
+    <label for="friendlyName">${t(lang, 'auth_form.label_friendly_name')}</label>
     <input id="friendlyName" type="text" name="friendlyName"
-           placeholder="Home" value="${v('friendlyName')}">
-    <div class="hint">Shown in the Alexa app to help you tell linked homes apart.</div>
+           placeholder="${escapeHtml(t(lang, 'auth_form.placeholder_friendly_name'))}" value="${v('friendlyName')}">
+    <div class="hint">${t(lang, 'auth_form.hint_friendly_name')}</div>
 
-    <button type="submit">Link this Aloxberry</button>
+    <button type="submit">${t(lang, 'auth_form.button')}</button>
   </form>
 </body>
 </html>`;
@@ -1398,19 +1416,19 @@ function renderAuthorizeForm({
 // deliberately warm and non-technical — the person sees this mid-link in the
 // Alexa app. The forum link is a placeholder until the forum thread exists;
 // swap FORUM_URL in (and flip the surrounding block) once it's live.
-function renderBetaFullPage(limit) {
+function renderBetaFullPage(limit, locale) {
+  const lang = normalizeLocale(locale);
   const FORUM_URL = ''; // TODO: point at the "request a beta slot" forum thread
   const forumBlock = FORUM_URL
-    ? `<p>Want in sooner? You can ask for an additional slot here:</p>
+    ? `<p>${t(lang, 'beta.forum_link_intro')}</p>
        <p><a href="${escapeHtml(FORUM_URL)}">${escapeHtml(FORUM_URL)}</a></p>`
-    : `<p>A place to request an additional slot is coming soon — please check
-       back, or watch the Aloxberry plugin announcements.</p>`;
+    : `<p>${t(lang, 'beta.forum_pending')}</p>`;
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aloxberry beta is full</title>
+  <title>${t(lang, 'beta.title')}</title>
   <style>
     :root { color-scheme: light dark; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1423,30 +1441,26 @@ function renderBetaFullPage(limit) {
   </style>
 </head>
 <body>
-  <h1>The Aloxberry beta is currently full 🚧</h1>
+  <h1>${t(lang, 'beta.heading')}</h1>
   <div class="box">
     <p>
-      Thanks for your interest! Aloxberry is still in a limited beta, capped at
-      <strong>${escapeHtml(String(limit))}</strong> connected LoxBerry
-      installations so we can keep an eye on stability. That limit is reached
-      right now, so we can't link a new installation just yet.
+      ${t(lang, 'beta.body_main', { limit: escapeHtml(String(limit)) })}
     </p>
     ${forumBlock}
     <p>
-      If you have <em>already</em> linked this LoxBerry before, adding another
-      Alexa account to it still works — this message only appears for brand-new
-      installations.
+      ${t(lang, 'beta.body_already_linked')}
     </p>
   </div>
 </body>
 </html>`;
 }
 
-function renderErrorPage(message) {
+function renderErrorPage(message, locale) {
+  const lang = normalizeLocale(locale);
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Error</title></head>
+<html lang="${lang}"><head><meta charset="utf-8"><title>${t(lang, 'error.title')}</title></head>
 <body style="font-family: sans-serif; max-width: 480px; margin: 3rem auto; padding: 0 1rem;">
-  <h1>Something went wrong</h1>
+  <h1>${t(lang, 'error.heading')}</h1>
   <p>${escapeHtml(message)}</p>
 </body></html>`;
 }

@@ -9,6 +9,7 @@ const {
   isValidCodeVerifier, pkceS256Challenge, verifyPkce,
   parseClientCredentials, timingSafeEqualStrings,
   isAllowedRedirectUri,
+  pickLocale, normalizeLocale, t,
 } = _test;
 
 let pass = 0, fail = 0;
@@ -115,6 +116,67 @@ test('isAllowedRedirectUri — only the 3 documented Alexa hosts (regression for
   eq(isAllowedRedirectUri('http://pitangui.amazon.com/cb'),     false, 'http:// rejected');
   eq(isAllowedRedirectUri('not a url'),                         false, 'unparseable rejected');
   eq(isAllowedRedirectUri('https://pitangui.amazon.com@evil.com/cb'), false, 'userinfo-confusion → host is evil.com, rejected');
+});
+
+test('pickLocale — Accept-Language parsing (RFC 4647 lookup)', () => {
+  // Exact primary-tag matches in our supported set.
+  eq(pickLocale('de'),                              'de', 'plain de');
+  eq(pickLocale('fr'),                              'fr', 'plain fr');
+  eq(pickLocale('it'),                              'it', 'plain it');
+  eq(pickLocale('es'),                              'es', 'plain es');
+  eq(pickLocale('en'),                              'en', 'plain en');
+
+  // Region-tagged tags strip down to primary.
+  eq(pickLocale('de-DE'),                           'de', 'de-DE → de');
+  eq(pickLocale('en-GB'),                           'en', 'en-GB → en');
+  eq(pickLocale('fr-CA'),                           'fr', 'fr-CA → fr');
+  eq(pickLocale('es-MX'),                           'es', 'es-MX → es');
+
+  // Quality-weight ordering.
+  eq(pickLocale('fr-FR,fr;q=0.9,en;q=0.8'),         'fr', 'fr-FR wins');
+  eq(pickLocale('en;q=0.5,de;q=0.9'),               'de', 'de beats en on q');
+  eq(pickLocale('zh;q=1,de;q=0.5'),                 'de', 'unsupported high-q skipped, de wins');
+
+  // Unsupported primary languages fall back to default.
+  eq(pickLocale('pl'),                              'en', 'pl unsupported → en');
+  eq(pickLocale('sv-SE'),                           'en', 'sv-SE unsupported → en');
+  eq(pickLocale('ja,zh,ko'),                        'en', 'all unsupported → en');
+
+  // Edge inputs.
+  eq(pickLocale(''),                                'en', 'empty → en');
+  eq(pickLocale(undefined),                         'en', 'undefined → en');
+  eq(pickLocale('*'),                               'en', 'wildcard → en');
+  eq(pickLocale('de;q=0'),                          'en', 'q=0 ignored → en');
+  eq(pickLocale('  DE-de  ,  en ;  q=0.8  '),       'de', 'whitespace + case tolerated');
+});
+
+test('normalizeLocale — clamps tampered input to a known locale', () => {
+  eq(normalizeLocale('de'), 'de', 'known passes');
+  eq(normalizeLocale('en'), 'en', 'default passes');
+  eq(normalizeLocale('pl'), 'en', 'unsupported → default');
+  eq(normalizeLocale(''),   'en', 'empty → default');
+  eq(normalizeLocale('<script>'), 'en', 'injection attempt → default');
+});
+
+test('t — translation lookup, fallback, and {var} interpolation', () => {
+  // Known key in known locale.
+  eq(t('de', 'auth_form.button'), 'Diesen Aloxberry verknüpfen', 'de translation');
+  eq(t('fr', 'auth_form.button'), 'Lier cet Aloxberry',          'fr translation');
+
+  // Unknown locale falls back to English.
+  eq(t('pl', 'auth_form.button'), 'Link this Aloxberry',         'pl falls back to en');
+  eq(t(undefined, 'auth_form.button'), 'Link this Aloxberry',    'undefined falls back to en');
+
+  // Unknown key returns key itself (loud failure mode).
+  eq(t('de', 'no_such_key'), 'no_such_key', 'unknown key surfaces itself');
+
+  // Variable interpolation.
+  eq(t('en', 'pair.err_http_status', { status: 502 }),
+     'Bridge returned an unexpected HTTP 502. Try again shortly.',
+     'status interpolated');
+  eq(t('de', 'pair.err_timeout', { ms: 5000 }),
+     'Die Bridge hat nicht innerhalb von 5000 ms geantwortet. Bitte erneut versuchen.',
+     'ms interpolated (de)');
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
