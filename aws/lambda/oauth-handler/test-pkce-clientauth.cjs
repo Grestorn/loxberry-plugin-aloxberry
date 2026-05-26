@@ -124,6 +124,7 @@ test('pickLocale — Accept-Language parsing (RFC 4647 lookup)', () => {
   eq(pickLocale('fr'),                              'fr', 'plain fr');
   eq(pickLocale('it'),                              'it', 'plain it');
   eq(pickLocale('es'),                              'es', 'plain es');
+  eq(pickLocale('nl'),                              'nl', 'plain nl');
   eq(pickLocale('en'),                              'en', 'plain en');
 
   // Region-tagged tags strip down to primary.
@@ -131,6 +132,8 @@ test('pickLocale — Accept-Language parsing (RFC 4647 lookup)', () => {
   eq(pickLocale('en-GB'),                           'en', 'en-GB → en');
   eq(pickLocale('fr-CA'),                           'fr', 'fr-CA → fr');
   eq(pickLocale('es-MX'),                           'es', 'es-MX → es');
+  eq(pickLocale('nl-NL'),                           'nl', 'nl-NL → nl');
+  eq(pickLocale('nl-BE'),                           'nl', 'nl-BE → nl');
 
   // Quality-weight ordering.
   eq(pickLocale('fr-FR,fr;q=0.9,en;q=0.8'),         'fr', 'fr-FR wins');

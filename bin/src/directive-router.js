@@ -95,6 +95,56 @@ function powerResponse(directiveHeader, endpointId, powerState) {
   };
 }
 
+// ----- Discovery friendlyNames i18n -----------------------------------------
+//
+// Alexa marketplace locales we emit friendlyName synonyms for. Add a tag here
+// and every helper below emits an entry for it automatically; per-call maps
+// supply translations, missing locales fall back to en-US.
+//
+// Why a region-tagged list here when the OAuth handler uses primary tags
+// ('de', not 'de-DE'): Alexa's Discovery schema requires the region form,
+// and there's no obvious 1:1 mapping ('en' would be en-US or en-GB or
+// en-CA?). Keep this list aligned manually with
+// aws/lambda/oauth-handler/i18n.js → SUPPORTED_LOCALES.
+const ALEXA_LOCALES = ['en-US', 'de-DE', 'fr-FR', 'it-IT', 'es-ES', 'nl-NL'];
+const ALEXA_LOCALE_FALLBACK = 'en-US';
+
+// Build friendlyName text entries from a per-locale map. Map values may be a
+// string OR an array of synonyms (Alexa allows multiple synonyms per locale,
+// e.g. "Shuffle"/"Random" both en-US). Locales absent from the map fall back
+// to the en-US text — so partial-coverage translations still produce a valid
+// Discovery payload, the missing-locale users just hear English synonyms.
+//
+// en-US is required (it's the fallback target). Throw early on misuse rather
+// than silently shipping a partly-empty payload that Alexa would later reject.
+function localizedTexts(perLocale) {
+  const fallback = perLocale[ALEXA_LOCALE_FALLBACK];
+  if (fallback == null) {
+    throw new Error('localizedTexts: en-US entry is required');
+  }
+  const out = [];
+  for (const locale of ALEXA_LOCALES) {
+    const raw = perLocale[locale] ?? fallback;
+    const arr = Array.isArray(raw) ? raw : [raw];
+    for (const text of arr) {
+      out.push({ '@type': 'text', value: { text, locale } });
+    }
+  }
+  return out;
+}
+
+// Emit the same text under every supported locale. Used for user-provided
+// strings (Loxone-Config mood names, radio slot names, custom sensor labels)
+// where the text is identical across locales but Alexa still needs one entry
+// per marketplace so voice match works regardless of the linking account's
+// region.
+function sameTextAllLocales(text) {
+  return ALEXA_LOCALES.map((locale) => ({
+    '@type': 'text',
+    value: { text, locale },
+  }));
+}
+
 // ----- Router ---------------------------------------------------------------
 
 // Set of directive keys (`${namespace}.${name}`) that effect a write on
@@ -784,10 +834,11 @@ class DirectiveRouter {
             proactivelyReported: true,
           },
           capabilityResources: {
-            friendlyNames: [
-              { '@type': 'text', value: { text: 'Value', locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Wert',  locale: 'de-DE' } },
-            ],
+            friendlyNames: localizedTexts({
+              'en-US': 'Value',
+              'de-DE': 'Wert',
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }),
           },
           configuration: {
             supportedRange: {
@@ -816,9 +867,11 @@ class DirectiveRouter {
           capabilityResources: {
             friendlyNames: [
               { '@type': 'asset', value: { assetId: 'Alexa.Setting.FanSpeed' } },
-              { '@type': 'text',  value: { text: 'Speed',         locale: 'en-US' } },
-              { '@type': 'text',  value: { text: 'Drehzahl',      locale: 'de-DE' } },
-              { '@type': 'text',  value: { text: 'Geschwindigkeit', locale: 'de-DE' } },
+              ...localizedTexts({
+                'en-US': 'Speed',
+                'de-DE': ['Drehzahl', 'Geschwindigkeit'],
+                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              }),
             ],
           },
           configuration: {
@@ -886,10 +939,11 @@ class DirectiveRouter {
             // No standard Alexa asset for a generic "slider value", so we
             // ship locale-text only. The endpoint's friendlyName already
             // names the device ("Volume", "Heizung-Sollwert", etc.).
-            friendlyNames: [
-              { '@type': 'text', value: { text: 'Value', locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Wert',  locale: 'de-DE' } },
-            ],
+            friendlyNames: localizedTexts({
+              'en-US': 'Value',
+              'de-DE': 'Wert',
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }),
           },
           configuration: {
             supportedRange: { minimumValue: min, maximumValue: max, precision: step },
@@ -912,8 +966,11 @@ class DirectiveRouter {
           capabilityResources: {
             friendlyNames: [
               { '@type': 'asset', value: { assetId: 'Alexa.Setting.Opening' } },
-              { '@type': 'text',  value: { text: 'Position', locale: 'en-US' } },
-              { '@type': 'text',  value: { text: 'Position', locale: 'de-DE' } },
+              ...localizedTexts({
+                'en-US': 'Position',
+                'de-DE': 'Position',
+                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              }),
             ],
           },
           configuration: {
@@ -943,8 +1000,11 @@ class DirectiveRouter {
                 presetResources: {
                   friendlyNames: [
                     { '@type': 'asset', value: { assetId: 'Alexa.Value.Medium' } },
-                    { '@type': 'text',  value: { text: 'Half', locale: 'en-US' } },
-                    { '@type': 'text',  value: { text: 'Halb', locale: 'de-DE' } },
+                    ...localizedTexts({
+                      'en-US': 'Half',
+                      'de-DE': 'Halb',
+                      // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                    }),
                   ],
                 },
               },
@@ -981,15 +1041,14 @@ class DirectiveRouter {
           },
           capabilityResources: {
             // Names the user can refer to this controller by ("set the
-            // light's mood to ...", "set the light's scene to ..."). Both
-            // EN and DE so a German Alexa account understands the same
-            // phrasing as an English one.
-            friendlyNames: [
-              { '@type': 'text', value: { text: 'Mood',     locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Scene',    locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Stimmung', locale: 'de-DE' } },
-              { '@type': 'text', value: { text: 'Szene',    locale: 'de-DE' } },
-            ],
+            // light's mood to ...", "set the light's scene to ..."). Voice
+            // synonyms per Alexa marketplace so the phrasing works in any
+            // linked account's region.
+            friendlyNames: localizedTexts({
+              'en-US': ['Mood', 'Scene'],
+              'de-DE': ['Stimmung', 'Szene'],
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }),
           },
           configuration: {
             ordered: false,
@@ -997,13 +1056,10 @@ class DirectiveRouter {
               value: String(m.id),
               modeResources: {
                 // Loxone-Config mood/scene names are already in the user's
-                // preferred language — declare them under both common
-                // locales so voice match works regardless of which
-                // Alexa marketplace the user's account is in.
-                friendlyNames: [
-                  { '@type': 'text', value: { text: m.name, locale: 'en-US' } },
-                  { '@type': 'text', value: { text: m.name, locale: 'de-DE' } },
-                ],
+                // preferred language — declare them under every supported
+                // marketplace locale so voice match works regardless of
+                // which Alexa region the linking account is in.
+                friendlyNames: sameTextAllLocales(m.name),
               },
             })),
           },
@@ -1139,12 +1195,11 @@ class DirectiveRouter {
           proactivelyReported: true,
         },
         capabilityResources: {
-          friendlyNames: [
-            { '@type': 'text', value: { text: 'Shuffle',      locale: 'en-US' } },
-            { '@type': 'text', value: { text: 'Zufall',       locale: 'de-DE' } },
-            { '@type': 'text', value: { text: 'Random',       locale: 'en-US' } },
-            { '@type': 'text', value: { text: 'Zufallsmodus', locale: 'de-DE' } },
-          ],
+          friendlyNames: localizedTexts({
+            'en-US': ['Shuffle', 'Random'],
+            'de-DE': ['Zufall', 'Zufallsmodus'],
+            // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+          }),
         },
       });
     }
@@ -1167,28 +1222,30 @@ class DirectiveRouter {
           proactivelyReported: true,
         },
         capabilityResources: {
-          friendlyNames: [
-            { '@type': 'text', value: { text: 'Repeat',       locale: 'en-US' } },
-            { '@type': 'text', value: { text: 'Wiederholung', locale: 'de-DE' } },
-          ],
+          friendlyNames: localizedTexts({
+            'en-US': 'Repeat',
+            'de-DE': 'Wiederholung',
+            // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+          }),
         },
         configuration: {
           ordered: false,
           supportedModes: [
-            { value: 'off', modeResources: { friendlyNames: [
-              { '@type': 'text', value: { text: 'Off',  locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Aus',  locale: 'de-DE' } },
-            ] } },
-            { value: 'all', modeResources: { friendlyNames: [
-              { '@type': 'text', value: { text: 'All',  locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Alle', locale: 'de-DE' } },
-            ] } },
-            { value: 'one', modeResources: { friendlyNames: [
-              { '@type': 'text', value: { text: 'One',         locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Track',       locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Einer',       locale: 'de-DE' } },
-              { '@type': 'text', value: { text: 'Titel',       locale: 'de-DE' } },
-            ] } },
+            { value: 'off', modeResources: { friendlyNames: localizedTexts({
+              'en-US': 'Off',
+              'de-DE': 'Aus',
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }) } },
+            { value: 'all', modeResources: { friendlyNames: localizedTexts({
+              'en-US': 'All',
+              'de-DE': 'Alle',
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }) } },
+            { value: 'one', modeResources: { friendlyNames: localizedTexts({
+              'en-US': ['One', 'Track'],
+              'de-DE': ['Einer', 'Titel'],
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }) } },
           ],
         },
       });
@@ -1225,25 +1282,22 @@ class DirectiveRouter {
             proactivelyReported: true,
           },
           capabilityResources: {
-            friendlyNames: [
-              { '@type': 'text', value: { text: 'Source',  locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Station', locale: 'en-US' } },
-              { '@type': 'text', value: { text: 'Quelle',  locale: 'de-DE' } },
-              { '@type': 'text', value: { text: 'Sender',  locale: 'de-DE' } },
-            ],
+            friendlyNames: localizedTexts({
+              'en-US': ['Source', 'Station'],
+              'de-DE': ['Quelle', 'Sender'],
+              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            }),
           },
           configuration: {
             ordered: false,
             supportedModes: sources.map((s) => ({
               value: String(s.slot),
               modeResources: {
-                friendlyNames: [
-                  // The user's favorite name from Loxone Music Server.
-                  // Already in their preferred language; declare both locales
-                  // so a German Alexa account understands the same string.
-                  { '@type': 'text', value: { text: s.name, locale: 'en-US' } },
-                  { '@type': 'text', value: { text: s.name, locale: 'de-DE' } },
-                ],
+                // The user's favorite name from Loxone Music Server is
+                // already in their preferred language; declare it under
+                // every supported marketplace locale so voice match works
+                // regardless of which Alexa region the account is in.
+                friendlyNames: sameTextAllLocales(s.name),
               },
             })),
           },
@@ -1271,9 +1325,11 @@ class DirectiveRouter {
             capabilityResources: {
               friendlyNames: [
                 { '@type': 'asset', value: { assetId: 'Alexa.Setting.Mode' } },
-                { '@type': 'text',  value: { text: 'Mode',     locale: 'en-US' } },
-                { '@type': 'text',  value: { text: 'Modus',    locale: 'de-DE' } },
-                { '@type': 'text',  value: { text: 'Auswahl',  locale: 'de-DE' } },
+                ...localizedTexts({
+                  'en-US': 'Mode',
+                  'de-DE': ['Modus', 'Auswahl'],
+                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                }),
               ],
             },
             configuration: {
@@ -1285,10 +1341,7 @@ class DirectiveRouter {
               supportedModes: outputs.map((o) => ({
                 value: String(o.id),
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: o.name, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: o.name, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(o.name),
                 },
               })),
             },
@@ -1328,10 +1381,11 @@ class DirectiveRouter {
           capabilityResources: {
             friendlyNames: [
               { '@type': 'asset', value: { assetId: 'Alexa.Setting.Mode' } },
-              { '@type': 'text',  value: { text: 'State',  locale: 'en-US' } },
-              { '@type': 'text',  value: { text: 'Status', locale: 'en-US' } },
-              { '@type': 'text',  value: { text: 'Status', locale: 'de-DE' } },
-              { '@type': 'text',  value: { text: 'Zustand', locale: 'de-DE' } },
+              ...localizedTexts({
+                'en-US': ['State', 'Status'],
+                'de-DE': ['Status', 'Zustand'],
+                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              }),
             ],
           },
           configuration: {
@@ -1346,19 +1400,13 @@ class DirectiveRouter {
               {
                 value: '0',
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: labelInactive, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: labelInactive, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(labelInactive),
                 },
               },
               {
                 value: '1',
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: labelActive, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: labelActive, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(labelActive),
                 },
               },
             ],
@@ -1387,10 +1435,11 @@ class DirectiveRouter {
             capabilityResources: {
               friendlyNames: [
                 { '@type': 'asset', value: { assetId: 'Alexa.Setting.Mode' } },
-                { '@type': 'text',  value: { text: 'Program',  locale: 'en-US' } },
-                { '@type': 'text',  value: { text: 'Routine',  locale: 'en-US' } },
-                { '@type': 'text',  value: { text: 'Programm', locale: 'de-DE' } },
-                { '@type': 'text',  value: { text: 'Ablauf',   locale: 'de-DE' } },
+                ...localizedTexts({
+                  'en-US': ['Program', 'Routine'],
+                  'de-DE': ['Programm', 'Ablauf'],
+                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                }),
               ],
             },
             configuration: {
@@ -1398,10 +1447,7 @@ class DirectiveRouter {
               supportedModes: seqs.map((s) => ({
                 value: String(s.id),
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: s.name, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: s.name, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(s.name),
                 },
               })),
             },
@@ -1431,9 +1477,11 @@ class DirectiveRouter {
             capabilityResources: {
               friendlyNames: [
                 { '@type': 'asset', value: { assetId: 'Alexa.Setting.Mode' } },
-                { '@type': 'text',  value: { text: 'Mode',     locale: 'en-US' } },
-                { '@type': 'text',  value: { text: 'Modus',    locale: 'de-DE' } },
-                { '@type': 'text',  value: { text: 'Betriebsart', locale: 'de-DE' } },
+                ...localizedTexts({
+                  'en-US': 'Mode',
+                  'de-DE': ['Modus', 'Betriebsart'],
+                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                }),
               ],
             },
             configuration: {
@@ -1441,10 +1489,7 @@ class DirectiveRouter {
               supportedModes: modes.map((m) => ({
                 value: String(m.id),
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: m.name, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: m.name, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(m.name),
                 },
               })),
             },
@@ -1473,22 +1518,18 @@ class DirectiveRouter {
               proactivelyReported: true,
             },
             capabilityResources: {
-              friendlyNames: [
-                { '@type': 'text', value: { text: 'Fan Speed',          locale: 'en-US' } },
-                { '@type': 'text', value: { text: 'Fan',                locale: 'en-US' } },
-                { '@type': 'text', value: { text: 'Lüfter',             locale: 'de-DE' } },
-                { '@type': 'text', value: { text: 'Lüftergeschwindigkeit', locale: 'de-DE' } },
-              ],
+              friendlyNames: localizedTexts({
+                'en-US': ['Fan Speed', 'Fan'],
+                'de-DE': ['Lüfter', 'Lüftergeschwindigkeit'],
+                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              }),
             },
             configuration: {
               ordered: true,    // Off < Auto < Silent < ... < Very High — speed has natural order
               supportedModes: fanSlots.map((s) => ({
                 value: String(s.slot),
                 modeResources: {
-                  friendlyNames: [
-                    { '@type': 'text', value: { text: s.name, locale: 'en-US' } },
-                    { '@type': 'text', value: { text: s.name, locale: 'de-DE' } },
-                  ],
+                  friendlyNames: sameTextAllLocales(s.name),
                 },
               })),
             },

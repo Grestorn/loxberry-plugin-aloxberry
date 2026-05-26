@@ -9,11 +9,16 @@
 // runtime hot-reload requirement, and Lambda cold-start cost matters. A
 // dependency-free t() + pickLocale beats bundling 200 KB of intl-messageformat.
 //
-// Scope mirrors where Alexa is actually sold: en (en-GB/en-US), de, fr, it,
-// es. Users in countries Alexa doesn't ship to (Scandinavia, Poland, etc.)
+// Scope mirrors where Alexa is actually sold and where the Alexa Developer
+// Console supports a marketplace locale: en (en-GB/en-US), de, fr, it, es,
+// nl. Users in countries Alexa doesn't ship to (Scandinavia, Poland, etc.)
 // link via their Alexa account's locale anyway and will land on en or de.
+//
+// Dutch entries are not translated yet — Dutch users will see English text
+// via t()'s en-fallback until the `nl: '...'` keys are added below. Search
+// for "TODO(i18n nl)" to find the gaps.
 
-const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'it', 'es'];
+const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'it', 'es', 'nl'];
 const DEFAULT_LOCALE = 'en';
 
 // Translation table. Flat keys; each entry maps locale → string.
