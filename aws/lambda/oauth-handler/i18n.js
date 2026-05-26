@@ -13,10 +13,6 @@
 // Console supports a marketplace locale: en (en-GB/en-US), de, fr, it, es,
 // nl. Users in countries Alexa doesn't ship to (Scandinavia, Poland, etc.)
 // link via their Alexa account's locale anyway and will land on en or de.
-//
-// Dutch entries are not translated yet — Dutch users will see English text
-// via t()'s en-fallback until the `nl: '...'` keys are added below. Search
-// for "TODO(i18n nl)" to find the gaps.
 
 const SUPPORTED_LOCALES = ['en', 'de', 'fr', 'it', 'es', 'nl'];
 const DEFAULT_LOCALE = 'en';
@@ -35,6 +31,7 @@ const TRANSLATIONS = {
     fr: 'Lier Aloxberry à Alexa',
     it: 'Collega Aloxberry ad Alexa',
     es: 'Vincular Aloxberry con Alexa',
+    nl: 'Aloxberry koppelen met Alexa',
   },
   'auth_form.heading': {
     en: 'Link your Aloxberry plugin to Alexa',
@@ -42,6 +39,7 @@ const TRANSLATIONS = {
     fr: 'Lier votre plugin Aloxberry à Alexa',
     it: 'Collega il tuo plugin Aloxberry ad Alexa',
     es: 'Vincula tu plugin Aloxberry con Alexa',
+    nl: 'Koppel je Aloxberry-plugin met Alexa',
   },
   'auth_form.lead': {
     en: "To link, enter the <strong>10-character pair code</strong> from the Aloxberry plugin's web UI. The code is one-shot and expires after 10 minutes.",
@@ -49,6 +47,7 @@ const TRANSLATIONS = {
     fr: "Pour lier, saisissez le <strong>code d'appairage à 10 caractères</strong> depuis l'interface web du plugin Aloxberry. Le code est à usage unique et expire après 10 minutes.",
     it: "Per collegare, inserisci il <strong>codice di abbinamento da 10 caratteri</strong> dall'interfaccia web del plugin Aloxberry. Il codice è monouso e scade dopo 10 minuti.",
     es: 'Para vincular, introduce el <strong>código de emparejamiento de 10 caracteres</strong> desde la interfaz web del plugin Aloxberry. El código es de un solo uso y caduca a los 10 minutos.',
+    nl: 'Om te koppelen voer je de <strong>pair-code van 10 tekens</strong> uit de webinterface van de Aloxberry-plugin in. De code is eenmalig en vervalt na 10 minuten.',
   },
   'auth_form.step1': {
     en: 'Open your LoxBerry → Plugins → Aloxberry.',
@@ -56,6 +55,7 @@ const TRANSLATIONS = {
     fr: 'Ouvrez votre LoxBerry → Plugins → Aloxberry.',
     it: 'Apri il tuo LoxBerry → Plugin → Aloxberry.',
     es: 'Abre tu LoxBerry → Plugins → Aloxberry.',
+    nl: 'Open je LoxBerry → Plugins → Aloxberry.',
   },
   'auth_form.step2': {
     en: 'Click <em>Show pair code</em>.',
@@ -63,6 +63,7 @@ const TRANSLATIONS = {
     fr: "Cliquez sur <em>Afficher le code d'appairage</em>.",
     it: 'Fai clic su <em>Mostra codice di abbinamento</em>.',
     es: 'Haz clic en <em>Mostrar código de emparejamiento</em>.',
+    nl: 'Klik op <em>Pair-code tonen</em>.',
   },
   'auth_form.step3': {
     en: 'Type or paste the 10 characters below.',
@@ -70,6 +71,7 @@ const TRANSLATIONS = {
     fr: 'Tapez ou collez les 10 caractères ci-dessous.',
     it: 'Digita o incolla i 10 caratteri qui sotto.',
     es: 'Escribe o pega los 10 caracteres aquí debajo.',
+    nl: 'Typ of plak de 10 tekens hieronder.',
   },
   'auth_form.label_pair_code': {
     en: 'Pair code',
@@ -77,6 +79,7 @@ const TRANSLATIONS = {
     fr: "Code d'appairage",
     it: 'Codice di abbinamento',
     es: 'Código de emparejamiento',
+    nl: 'Pair-code',
   },
   'auth_form.hint_pair_code': {
     en: '10 characters: A-Z (no I, O) and 2-9. Lowercase is converted automatically.',
@@ -84,6 +87,7 @@ const TRANSLATIONS = {
     fr: '10 caractères : A–Z (sans I, O) et 2–9. Les minuscules sont converties automatiquement.',
     it: '10 caratteri: A–Z (senza I, O) e 2–9. Le lettere minuscole vengono convertite automaticamente.',
     es: '10 caracteres: A–Z (sin I, O) y 2–9. Las minúsculas se convierten automáticamente.',
+    nl: '10 tekens: A-Z (zonder I, O) en 2-9. Kleine letters worden automatisch omgezet.',
   },
   'auth_form.label_friendly_name': {
     en: 'Friendly name (optional)',
@@ -91,6 +95,7 @@ const TRANSLATIONS = {
     fr: 'Nom convivial (facultatif)',
     it: 'Nome descrittivo (facoltativo)',
     es: 'Nombre amigable (opcional)',
+    nl: 'Weergavenaam (optioneel)',
   },
   'auth_form.hint_friendly_name': {
     en: 'Shown in the Alexa app to help you tell linked homes apart.',
@@ -98,6 +103,7 @@ const TRANSLATIONS = {
     fr: "Affiché dans l'application Alexa pour distinguer les maisons liées.",
     it: "Mostrato nell'app Alexa per distinguere le abitazioni collegate.",
     es: 'Se muestra en la app de Alexa para distinguir las casas vinculadas.',
+    nl: 'Wordt in de Alexa-app getoond om gekoppelde huizen uit elkaar te houden.',
   },
   'auth_form.placeholder_friendly_name': {
     en: 'Home',
@@ -105,6 +111,7 @@ const TRANSLATIONS = {
     fr: 'Maison',
     it: 'Casa',
     es: 'Casa',
+    nl: 'Thuis',
   },
   'auth_form.button': {
     en: 'Link this Aloxberry',
@@ -112,6 +119,7 @@ const TRANSLATIONS = {
     fr: 'Lier cet Aloxberry',
     it: 'Collega questo Aloxberry',
     es: 'Vincular este Aloxberry',
+    nl: 'Deze Aloxberry koppelen',
   },
   'auth_form.err_pair_required': {
     en: "A pair code is required. Generate one in the Aloxberry plugin's web UI.",
@@ -119,6 +127,7 @@ const TRANSLATIONS = {
     fr: "Un code d'appairage est requis. Générez-en un dans l'interface web du plugin Aloxberry.",
     it: "È richiesto un codice di abbinamento. Generane uno nell'interfaccia web del plugin Aloxberry.",
     es: 'Se requiere un código de emparejamiento. Genera uno en la interfaz web del plugin Aloxberry.',
+    nl: 'Een pair-code is vereist. Genereer er een in de webinterface van de Aloxberry-plugin.',
   },
   'auth_form.err_pair_bad_format': {
     en: 'Pair code must be exactly 10 characters from the set A-Z (no I, O) and 2-9. Check for typos and try again.',
@@ -126,6 +135,7 @@ const TRANSLATIONS = {
     fr: "Le code d'appairage doit comporter exactement 10 caractères parmi A–Z (sans I, O) et 2–9. Vérifiez les fautes de frappe et réessayez.",
     it: "Il codice di abbinamento deve essere esattamente di 10 caratteri tra A–Z (senza I, O) e 2–9. Controlla eventuali errori di battitura e riprova.",
     es: 'El código de emparejamiento debe tener exactamente 10 caracteres del conjunto A–Z (sin I, O) y 2–9. Comprueba si hay erratas e inténtalo de nuevo.',
+    nl: 'De pair-code moet exact 10 tekens lang zijn uit de set A-Z (zonder I, O) en 2-9. Controleer op typefouten en probeer het opnieuw.',
   },
 
   // ---- Pair-code redemption (bridge round-trip errors) -------------------
@@ -135,6 +145,7 @@ const TRANSLATIONS = {
     fr: "La bridge a renvoyé une réponse inattendue. Réessayez ou contactez l'opérateur.",
     it: "La bridge ha restituito una risposta inattesa. Riprova o contatta l'operatore.",
     es: 'La bridge devolvió una respuesta inesperada. Inténtalo de nuevo o contacta con el operador.',
+    nl: 'De bridge heeft een onverwacht antwoord teruggegeven. Probeer het opnieuw of neem contact op met de beheerder.',
   },
   'pair.err_not_found': {
     en: "That code is not recognized. It may have expired (codes last 10 minutes), already been used, or never been generated. Go back to the Aloxberry plugin's web UI, generate a fresh code, and paste it here.",
@@ -142,6 +153,7 @@ const TRANSLATIONS = {
     fr: "Ce code n'est pas reconnu. Il a peut-être expiré (les codes durent 10 minutes), déjà été utilisé, ou n'a jamais été généré. Retournez dans l'interface web du plugin Aloxberry, générez un nouveau code et collez-le ici.",
     it: "Questo codice non è riconosciuto. Potrebbe essere scaduto (i codici durano 10 minuti), già essere stato usato, o non essere mai stato generato. Torna nell'interfaccia web del plugin Aloxberry, genera un nuovo codice e incollalo qui.",
     es: 'Este código no se reconoce. Puede haber caducado (los códigos duran 10 minutos), haberse usado ya, o no haberse generado nunca. Vuelve a la interfaz web del plugin Aloxberry, genera un código nuevo y pégalo aquí.',
+    nl: 'Deze code wordt niet herkend. Mogelijk is hij vervallen (codes zijn 10 minuten geldig), al gebruikt, of nooit gegenereerd. Ga terug naar de webinterface van de Aloxberry-plugin, genereer een nieuwe code en plak hem hier.',
   },
   'pair.err_bridge_unauthorized': {
     en: 'Bridge configuration error (auth failed). Please contact the operator.',
@@ -149,6 +161,7 @@ const TRANSLATIONS = {
     fr: "Erreur de configuration de la bridge (échec d'authentification). Veuillez contacter l'opérateur.",
     it: "Errore di configurazione della bridge (autenticazione fallita). Contatta l'operatore.",
     es: 'Error de configuración de la bridge (autenticación fallida). Por favor, contacta con el operador.',
+    nl: 'Bridge-configuratiefout (authenticatie mislukt). Neem contact op met de beheerder.',
   },
   'pair.err_bridge_not_configured': {
     en: 'Bridge is not yet configured. Please try again later.',
@@ -156,6 +169,7 @@ const TRANSLATIONS = {
     fr: "La bridge n'est pas encore configurée. Veuillez réessayer plus tard.",
     it: 'La bridge non è ancora configurata. Riprova più tardi.',
     es: 'La bridge aún no está configurada. Inténtalo de nuevo más tarde.',
+    nl: 'De bridge is nog niet geconfigureerd. Probeer het later opnieuw.',
   },
   'pair.err_http_status': {
     en: 'Bridge returned an unexpected HTTP {status}. Try again shortly.',
@@ -163,6 +177,7 @@ const TRANSLATIONS = {
     fr: 'La bridge a renvoyé un HTTP {status} inattendu. Réessayez sous peu.',
     it: 'La bridge ha restituito un HTTP {status} inatteso. Riprova a breve.',
     es: 'La bridge devolvió un HTTP {status} inesperado. Inténtalo de nuevo en breve.',
+    nl: 'De bridge gaf een onverwachte HTTP {status} terug. Probeer het binnenkort opnieuw.',
   },
   'pair.err_timeout': {
     en: 'Bridge did not respond within {ms}ms. Try again.',
@@ -170,6 +185,7 @@ const TRANSLATIONS = {
     fr: "La bridge n'a pas répondu dans les {ms} ms. Réessayez.",
     it: 'La bridge non ha risposto entro {ms} ms. Riprova.',
     es: 'La bridge no respondió en {ms} ms. Inténtalo de nuevo.',
+    nl: 'De bridge reageerde niet binnen {ms} ms. Probeer het opnieuw.',
   },
   'pair.err_unreachable': {
     en: 'Could not reach the bridge: {error}. Try again in a minute.',
@@ -177,6 +193,7 @@ const TRANSLATIONS = {
     fr: 'Impossible de joindre la bridge : {error}. Réessayez dans une minute.',
     it: 'Impossibile raggiungere la bridge: {error}. Riprova tra un minuto.',
     es: 'No se pudo contactar con la bridge: {error}. Inténtalo de nuevo en un minuto.',
+    nl: 'De bridge kon niet worden bereikt: {error}. Probeer het over een minuut opnieuw.',
   },
 
   // ---- Beta-full page ----------------------------------------------------
@@ -186,6 +203,7 @@ const TRANSLATIONS = {
     fr: "La bêta d'Aloxberry est pleine",
     it: 'La beta di Aloxberry è al completo',
     es: 'La beta de Aloxberry está llena',
+    nl: 'Aloxberry-bèta zit vol',
   },
   'beta.heading': {
     en: 'The Aloxberry beta is currently full 🚧',
@@ -193,6 +211,7 @@ const TRANSLATIONS = {
     fr: "La bêta d'Aloxberry est actuellement pleine 🚧",
     it: 'La beta di Aloxberry è attualmente al completo 🚧',
     es: 'La beta de Aloxberry está actualmente llena 🚧',
+    nl: 'De Aloxberry-bèta zit op dit moment vol 🚧',
   },
   'beta.body_main': {
     en: "Thanks for your interest! Aloxberry is still in a limited beta, capped at <strong>{limit}</strong> connected LoxBerry installations so we can keep an eye on stability. That limit is reached right now, so we can't link a new installation just yet.",
@@ -200,6 +219,7 @@ const TRANSLATIONS = {
     fr: "Merci de votre intérêt ! Aloxberry est encore en bêta limitée, plafonnée à <strong>{limit}</strong> installations LoxBerry connectées afin que nous puissions surveiller la stabilité. Cette limite est atteinte actuellement, nous ne pouvons donc pas lier une nouvelle installation pour l'instant.",
     it: "Grazie per l'interesse! Aloxberry è ancora in una beta limitata, con un limite di <strong>{limit}</strong> installazioni LoxBerry collegate per poterne monitorare la stabilità. Quel limite è raggiunto in questo momento, quindi non possiamo ancora collegare una nuova installazione.",
     es: '¡Gracias por tu interés! Aloxberry sigue en beta limitada, con un máximo de <strong>{limit}</strong> instalaciones LoxBerry conectadas para poder vigilar la estabilidad. Ese límite se ha alcanzado ahora mismo, por lo que aún no podemos vincular una instalación nueva.',
+    nl: 'Bedankt voor je interesse! Aloxberry zit nog in een beperkte bètafase, gemaximeerd op <strong>{limit}</strong> aangesloten LoxBerry-installaties zodat we de stabiliteit in het oog kunnen houden. Die limiet is op dit moment bereikt, dus kunnen we voorlopig geen nieuwe installatie koppelen.',
   },
   'beta.forum_pending': {
     en: 'A place to request an additional slot is coming soon — please check back, or watch the Aloxberry plugin announcements.',
@@ -207,6 +227,7 @@ const TRANSLATIONS = {
     fr: "Un endroit pour demander un emplacement supplémentaire arrive bientôt — n'hésitez pas à revenir, ou surveillez les annonces du plugin Aloxberry.",
     it: 'Presto sarà disponibile un luogo per richiedere uno slot aggiuntivo — torna a controllare, o segui gli annunci del plugin Aloxberry.',
     es: 'Próximamente habrá un sitio para solicitar una plaza adicional — vuelve más tarde, o mantente atento a los anuncios del plugin Aloxberry.',
+    nl: 'Een plek om een extra plaats aan te vragen komt binnenkort — kom later nog eens terug, of houd de aankondigingen van de Aloxberry-plugin in de gaten.',
   },
   'beta.forum_link_intro': {
     en: 'Want in sooner? You can ask for an additional slot here:',
@@ -214,6 +235,7 @@ const TRANSLATIONS = {
     fr: 'Vous voulez entrer plus tôt ? Vous pouvez demander un emplacement supplémentaire ici :',
     it: 'Vuoi entrare prima? Puoi richiedere uno slot aggiuntivo qui:',
     es: '¿Quieres entrar antes? Puedes solicitar una plaza adicional aquí:',
+    nl: 'Wil je er eerder bij zijn? Je kunt hier een extra plek aanvragen:',
   },
   'beta.body_already_linked': {
     en: 'If you have <em>already</em> linked this LoxBerry before, adding another Alexa account to it still works — this message only appears for brand-new installations.',
@@ -221,6 +243,7 @@ const TRANSLATIONS = {
     fr: "Si vous avez <em>déjà</em> lié ce LoxBerry auparavant, ajouter un autre compte Alexa fonctionne toujours — ce message ne s'affiche que pour les installations toutes neuves.",
     it: "Se hai <em>già</em> collegato questo LoxBerry in precedenza, aggiungere un altro account Alexa funziona comunque — questo messaggio appare solo per le installazioni nuovissime.",
     es: 'Si <em>ya</em> has vinculado este LoxBerry antes, añadirle otra cuenta de Alexa sigue funcionando — este mensaje solo aparece para instalaciones totalmente nuevas.',
+    nl: 'Als je deze LoxBerry <em>al eerder</em> hebt gekoppeld, blijft het toevoegen van een ander Alexa-account werken — dit bericht verschijnt alleen bij gloednieuwe installaties.',
   },
 
   // ---- Generic error page ------------------------------------------------
@@ -230,6 +253,7 @@ const TRANSLATIONS = {
     fr: 'Erreur',
     it: 'Errore',
     es: 'Error',
+    nl: 'Fout',
   },
   'error.heading': {
     en: 'Something went wrong',
@@ -237,6 +261,7 @@ const TRANSLATIONS = {
     fr: "Quelque chose s'est mal passé",
     it: 'Qualcosa è andato storto',
     es: 'Algo ha salido mal',
+    nl: 'Er ging iets mis',
   },
   'error.invalid_redirect': {
     en: 'Invalid or untrusted redirect_uri.',
@@ -244,6 +269,7 @@ const TRANSLATIONS = {
     fr: 'redirect_uri invalide ou non approuvée.',
     it: 'redirect_uri non valido o non attendibile.',
     es: 'redirect_uri no válida o no de confianza.',
+    nl: 'Ongeldige of niet-vertrouwde redirect_uri.',
   },
   'error.config_retry': {
     en: 'Server configuration error — please retry shortly.',
@@ -251,6 +277,7 @@ const TRANSLATIONS = {
     fr: 'Erreur de configuration du serveur — veuillez réessayer sous peu.',
     it: 'Errore di configurazione del server — riprova a breve.',
     es: 'Error de configuración del servidor — inténtalo de nuevo en breve.',
+    nl: 'Serverconfiguratiefout — probeer het binnenkort opnieuw.',
   },
   'error.bridge_unconfigured': {
     en: 'Bridge is not configured. Contact the operator.',
@@ -258,6 +285,7 @@ const TRANSLATIONS = {
     fr: "La bridge n'est pas configurée. Contactez l'opérateur.",
     it: "La bridge non è configurata. Contatta l'operatore.",
     es: 'La bridge no está configurada. Contacta con el operador.',
+    nl: 'De bridge is niet geconfigureerd. Neem contact op met de beheerder.',
   },
   'error.oauth_generic': {
     en: 'OAuth error: {code}',
@@ -265,6 +293,7 @@ const TRANSLATIONS = {
     fr: 'Erreur OAuth : {code}',
     it: 'Errore OAuth: {code}',
     es: 'Error de OAuth: {code}',
+    nl: 'OAuth-fout: {code}',
   },
 };
 

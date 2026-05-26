@@ -837,7 +837,10 @@ class DirectiveRouter {
             friendlyNames: localizedTexts({
               'en-US': 'Value',
               'de-DE': 'Wert',
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': 'Valeur',
+              'it-IT': 'Valore',
+              'es-ES': 'Valor',
+              'nl-NL': 'Waarde',
             }),
           },
           configuration: {
@@ -870,7 +873,10 @@ class DirectiveRouter {
               ...localizedTexts({
                 'en-US': 'Speed',
                 'de-DE': ['Drehzahl', 'Geschwindigkeit'],
-                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                'fr-FR': 'Vitesse',
+                'it-IT': 'Velocità',
+                'es-ES': 'Velocidad',
+                'nl-NL': ['Snelheid', 'Toerental'],
               }),
             ],
           },
@@ -942,7 +948,10 @@ class DirectiveRouter {
             friendlyNames: localizedTexts({
               'en-US': 'Value',
               'de-DE': 'Wert',
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': 'Valeur',
+              'it-IT': 'Valore',
+              'es-ES': 'Valor',
+              'nl-NL': 'Waarde',
             }),
           },
           configuration: {
@@ -969,7 +978,10 @@ class DirectiveRouter {
               ...localizedTexts({
                 'en-US': 'Position',
                 'de-DE': 'Position',
-                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                'fr-FR': 'Position',
+                'it-IT': 'Posizione',
+                'es-ES': 'Posición',
+                'nl-NL': 'Positie',
               }),
             ],
           },
@@ -1003,7 +1015,10 @@ class DirectiveRouter {
                     ...localizedTexts({
                       'en-US': 'Half',
                       'de-DE': 'Halb',
-                      // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                      'fr-FR': 'Moitié',
+                      'it-IT': 'Metà',
+                      'es-ES': 'Mitad',
+                      'nl-NL': 'Half',
                     }),
                   ],
                 },
@@ -1047,7 +1062,10 @@ class DirectiveRouter {
             friendlyNames: localizedTexts({
               'en-US': ['Mood', 'Scene'],
               'de-DE': ['Stimmung', 'Szene'],
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': ['Ambiance', 'Scène'],
+              'it-IT': ['Atmosfera', 'Scena'],
+              'es-ES': ['Ambiente', 'Escena'],
+              'nl-NL': ['Sfeer', 'Scène'],
             }),
           },
           configuration: {
@@ -1198,7 +1216,10 @@ class DirectiveRouter {
           friendlyNames: localizedTexts({
             'en-US': ['Shuffle', 'Random'],
             'de-DE': ['Zufall', 'Zufallsmodus'],
-            // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            'fr-FR': ['Lecture aléatoire', 'Aléatoire'],
+            'it-IT': ['Casuale', 'Riproduzione casuale'],
+            'es-ES': ['Aleatorio', 'Reproducción aleatoria'],
+            'nl-NL': ['Shuffle', 'Willekeurig'],
           }),
         },
       });
@@ -1225,7 +1246,10 @@ class DirectiveRouter {
           friendlyNames: localizedTexts({
             'en-US': 'Repeat',
             'de-DE': 'Wiederholung',
-            // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+            'fr-FR': 'Répétition',
+            'it-IT': 'Ripetizione',
+            'es-ES': 'Repetición',
+            'nl-NL': 'Herhalen',
           }),
         },
         configuration: {
@@ -1234,17 +1258,26 @@ class DirectiveRouter {
             { value: 'off', modeResources: { friendlyNames: localizedTexts({
               'en-US': 'Off',
               'de-DE': 'Aus',
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': 'Désactivé',
+              'it-IT': 'Spento',
+              'es-ES': 'Apagado',
+              'nl-NL': 'Uit',
             }) } },
             { value: 'all', modeResources: { friendlyNames: localizedTexts({
               'en-US': 'All',
               'de-DE': 'Alle',
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': 'Tout',
+              'it-IT': 'Tutto',
+              'es-ES': 'Todo',
+              'nl-NL': 'Alles',
             }) } },
             { value: 'one', modeResources: { friendlyNames: localizedTexts({
               'en-US': ['One', 'Track'],
               'de-DE': ['Einer', 'Titel'],
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': ['Un', 'Titre'],
+              'it-IT': ['Uno', 'Brano'],
+              'es-ES': ['Uno', 'Pista'],
+              'nl-NL': ['Eén', 'Nummer'],
             }) } },
           ],
         },
@@ -1285,7 +1318,10 @@ class DirectiveRouter {
             friendlyNames: localizedTexts({
               'en-US': ['Source', 'Station'],
               'de-DE': ['Quelle', 'Sender'],
-              // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+              'fr-FR': ['Source', 'Station'],
+              'it-IT': ['Sorgente', 'Stazione'],
+              'es-ES': ['Fuente', 'Emisora'],
+              'nl-NL': ['Bron', 'Zender'],
             }),
           },
           configuration: {
@@ -1328,7 +1364,10 @@ class DirectiveRouter {
                 ...localizedTexts({
                   'en-US': 'Mode',
                   'de-DE': ['Modus', 'Auswahl'],
-                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                  'fr-FR': 'Mode',
+                  'it-IT': 'Modalità',
+                  'es-ES': 'Modo',
+                  'nl-NL': ['Modus', 'Keuze'],
                 }),
               ],
             },
@@ -1384,7 +1423,10 @@ class DirectiveRouter {
               ...localizedTexts({
                 'en-US': ['State', 'Status'],
                 'de-DE': ['Status', 'Zustand'],
-                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                'fr-FR': ['État', 'Statut'],
+                'it-IT': ['Stato', 'Condizione'],
+                'es-ES': ['Estado', 'Situación'],
+                'nl-NL': ['Status', 'Toestand'],
               }),
             ],
           },
@@ -1438,7 +1480,10 @@ class DirectiveRouter {
                 ...localizedTexts({
                   'en-US': ['Program', 'Routine'],
                   'de-DE': ['Programm', 'Ablauf'],
-                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                  'fr-FR': ['Programme', 'Routine'],
+                  'it-IT': ['Programma', 'Routine'],
+                  'es-ES': ['Programa', 'Rutina'],
+                  'nl-NL': ['Programma', 'Routine'],
                 }),
               ],
             },
@@ -1480,7 +1525,10 @@ class DirectiveRouter {
                 ...localizedTexts({
                   'en-US': 'Mode',
                   'de-DE': ['Modus', 'Betriebsart'],
-                  // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                  'fr-FR': 'Mode',
+                  'it-IT': ['Modalità', 'Funzionamento'],
+                  'es-ES': ['Modo', 'Funcionamiento'],
+                  'nl-NL': ['Modus', 'Stand'],
                 }),
               ],
             },
@@ -1521,7 +1569,10 @@ class DirectiveRouter {
               friendlyNames: localizedTexts({
                 'en-US': ['Fan Speed', 'Fan'],
                 'de-DE': ['Lüfter', 'Lüftergeschwindigkeit'],
-                // TODO(i18n): fr-FR, it-IT, es-ES, nl-NL
+                'fr-FR': ['Vitesse du ventilateur', 'Ventilateur'],
+                'it-IT': ['Velocità ventola', 'Ventola'],
+                'es-ES': ['Velocidad del ventilador', 'Ventilador'],
+                'nl-NL': ['Ventilatorsnelheid', 'Ventilator'],
               }),
             },
             configuration: {
