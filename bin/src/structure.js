@@ -56,21 +56,26 @@ const TYPE_MAP = Object.freeze({
     capabilities: ['PowerController'],
     // A Switch can drive almost any on/off load — keep the dropdown wide
     // so users can pick the right Alexa icon and routine integration.
+    // (DOORBELL deliberately excluded: Alexa expects DOORBELL endpoints to
+    // emit Alexa.DoorbellEventSource events, not just on/off — assigning it
+    // to a PowerController endpoint just renders a doorbell icon with no
+    // working Routine trigger.)
     allowedCategories: ['SWITCH', 'OUTLET', 'SMARTPLUG', 'FAN', 'LIGHT',
-                        'DOOR', 'DOORBELL', 'AIR_PURIFIER', 'OTHER'],
+                        'DOOR', 'AIR_PURIFIER', 'OTHER'],
   },
   TimedSwitch: {
     category: 'SWITCH',
     capabilities: ['PowerController'],
-    // Same as Switch minus DOORBELL (doorbells don't have countdowns).
     allowedCategories: ['SWITCH', 'OUTLET', 'SMARTPLUG', 'FAN', 'LIGHT',
                         'DOOR', 'OTHER'],
   },
   Pushbutton: {
     category: 'SCENE_TRIGGER',
     capabilities: ['SceneController'],
-    // Momentary — fits scenes, activities, doorbells.
-    allowedCategories: ['SCENE_TRIGGER', 'ACTIVITY_TRIGGER', 'DOORBELL', 'OTHER'],
+    // Momentary — fits scenes and activities. (DOORBELL excluded for the
+    // same reason as Switch: needs Alexa.DoorbellEventSource, which a pure
+    // SceneController endpoint can't provide.)
+    allowedCategories: ['SCENE_TRIGGER', 'ACTIVITY_TRIGGER', 'OTHER'],
   },
   Dimmer: {
     category: 'LIGHT',
@@ -130,9 +135,17 @@ const TYPE_MAP = Object.freeze({
     allowedCategories: ['INTERIOR_BLIND', 'EXTERIOR_BLIND', 'OTHER'],
   },
   Gate: {
-    category: 'GARAGE_DOOR', capabilities: ['RangeController'],
+    // DOOR (not GARAGE_DOOR) because GARAGE_DOOR has certification-grade
+    // requirements we can't meet from a Loxone-only daemon: it demands an
+    // Alexa.ModeController with a specific GarageDoor.Position semantics
+    // block, a user-set voice PIN before "open" dispatches at all, and
+    // skips nl-NL entirely from its supported-locale list. DOOR is permissive
+    // — accepts "open"/"close" against RangeController via SetRangeValue —
+    // and lets the existing Gate dispatcher in directive-router work
+    // unchanged.
+    category: 'DOOR', capabilities: ['RangeController'],
     rangeAxisInverted: false,
-    allowedCategories: ['GARAGE_DOOR', 'DOOR', 'OTHER'],
+    allowedCategories: ['DOOR', 'OTHER'],
   },
   // Generic analog Loxone control — Virtual Input (Slider) in Loxone Config.
   // Its own min/max/step from `details` drives Alexa's supportedRange, so a

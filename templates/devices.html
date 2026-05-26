@@ -142,6 +142,10 @@
   <div class="ax-flash <TMPL_VAR FLASH_KIND>"><TMPL_VAR FLASH ESCAPE=HTML></div>
 </TMPL_IF>
 
+<TMPL_IF HAS_MIGRATION_NOTICE>
+  <div class="ax-flash info"><TMPL_VAR MIGRATION_NOTICE ESCAPE=HTML></div>
+</TMPL_IF>
+
 <TMPL_IF HEALTH_BRIDGE_DOWN>
   <div class="ax-flash error">
     <strong><TMPL_VAR NAME=HEALTH.BRIDGE_DOWN_TITLE></strong>
@@ -363,9 +367,8 @@
                     'THERMOSTAT','AIR_CONDITIONER','VENT',
                     'TEMPERATURE_SENSOR','HUMIDITY_SENSOR','AIR_QUALITY_MONITOR',
                     'CONTACT_SENSOR','MOTION_SENSOR',
-                    'INTERIOR_BLIND','EXTERIOR_BLIND','GARAGE_DOOR','DOOR',
+                    'INTERIOR_BLIND','EXTERIOR_BLIND','DOOR',
                     'SPEAKER','STREAMING_DEVICE','MUSIC_SYSTEM',
-                    'DOORBELL','CAMERA',
                     'SCENE_TRIGGER','ACTIVITY_TRIGGER','HUB',
                     'OTHER'];
 

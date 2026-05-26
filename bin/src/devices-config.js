@@ -48,6 +48,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const EventEmitter = require('node:events');
 const chokidar = require('chokidar');
+const { alexaInfoForType } = require('./structure');
 
 const SCHEMA_VERSION = 1;
 // Validate display categories against what Alexa actually accepts. Picker
@@ -68,15 +69,34 @@ const VALID_CATEGORIES = new Set([
   'TEMPERATURE_SENSOR', 'HUMIDITY_SENSOR', 'AIR_QUALITY_MONITOR',
   'CONTACT_SENSOR', 'MOTION_SENSOR',
   // Openings
-  'INTERIOR_BLIND', 'EXTERIOR_BLIND', 'GARAGE_DOOR', 'DOOR',
+  'INTERIOR_BLIND', 'EXTERIOR_BLIND', 'DOOR',
   // Audio / video
   'SPEAKER', 'STREAMING_DEVICE', 'MUSIC_SYSTEM',
-  // Security / access
-  'DOORBELL', 'CAMERA',
   // Scenes / hubs / fallback
   'SCENE_TRIGGER', 'ACTIVITY_TRIGGER', 'HUB',
   'OTHER',
 ]);
+
+// Categories that were once selectable but have been removed because Alexa's
+// certification rules require interfaces we can't provide from a Loxone-only
+// daemon:
+//   GARAGE_DOOR — needs Alexa.ModeController + GarageDoor.Position semantics
+//                 + voice PIN + restricted to a locale set that excludes
+//                 nl-NL. Our RangeController-based Gate dispatch is silently
+//                 unreachable by voice on this category.
+//   DOORBELL    — needs Alexa.DoorbellEventSource (a doorbell announces
+//                 itself; the user does not voice-control it). Pure
+//                 PowerController/SceneController endpoints render a
+//                 doorbell tile that does nothing useful in Routines.
+//   CAMERA      — needs Alexa.CameraStreamController + an MJPEG/RTSP feed.
+//                 The daemon has no way to provide one.
+//
+// On load, existing devices.json entries with one of these categories are
+// silently migrated to their control type's default (e.g. Gate → DOOR,
+// Switch with DOORBELL → SWITCH). Migration is forensic-logged but not
+// surfaced in the UI. The corrected category is persisted back to disk on
+// the next CGI save.
+const REMOVED_CATEGORIES = new Set(['GARAGE_DOOR', 'DOORBELL', 'CAMERA']);
 
 const DEFAULT_GLOBALS = Object.freeze({
   enabled: true,
@@ -84,15 +104,38 @@ const DEFAULT_GLOBALS = Object.freeze({
 });
 
 class DevicesConfig extends EventEmitter {
-  constructor({ configDir, log }) {
+  constructor({ configDir, log, structureCache = null }) {
     super();
     this.path = path.join(configDir, 'devices.json');
     this.log = log.child({ component: 'devices-config' });
+    // structureCache is OPTIONAL — when present, removed-category migration
+    // resolves to the control type's default (Gate → DOOR); when absent
+    // (tests, cold first install before LoxAPP3.json has been fetched),
+    // migration falls back to 'OTHER'. Missing structure can never crash
+    // the load — see _migrateRemovedCategory.
+    this.structureCache = structureCache;
     this.devices = [];                                    // sanitized list
     this.globals = { ...DEFAULT_GLOBALS,
                      vacationGate: { ...DEFAULT_GLOBALS.vacationGate } };
     this.lastLoadAt = null;
     this.watcher = null;
+    // Migration banner state. Set to { count, since } after a load with
+    // category migrations applied; cleared when a subsequent user CGI
+    // save (an external write that lands on disk with clean data) signals
+    // implicit acknowledgment. index.js mirrors this to state.json so the
+    // CGI's devices page can render the "Alexa, discover my devices"
+    // banner.
+    this.migrationPending = null;
+    // Deadline (ms since epoch) before which any chokidar event is treated
+    // as the response to our own _persistAfterMigration write, not a user
+    // save. A timestamp window (not a counter) because the atomic write+
+    // rename can produce more than one event (chokidar may emit 'unlink'
+    // then 'add', or 'change' alone, platform-dependent) — a counter would
+    // be exhausted by the first event and let the second prematurely clear
+    // the banner. 2 s is generous vs chokidar's 300 ms awaitWriteFinish
+    // debounce plus delivery jitter, while still narrow enough that a
+    // real user CGI save in normal operation won't fall inside it.
+    this._suppressClearUntil = 0;
   }
 
   async start() {
@@ -119,21 +162,51 @@ class DevicesConfig extends EventEmitter {
 
   async _reload(eventName) {
     const previous = this.devices;
-    await this.load();
+    // Within the post-self-write window any reload reflects OUR migration
+    // write, not a user save — don't clear the banner. After the window
+    // expires, every reload is a real external write.
+    const wasOurWrite = Date.now() < this._suppressClearUntil;
+    await this.load({ wasOurWrite });
     this.log.info(
-      { event: eventName, count: this.devices.length },
+      { event: eventName, count: this.devices.length, wasOurWrite },
       'devices.json reloaded',
     );
     this.emit('change', { devices: this.devices, previous });
   }
 
-  async load() {
+  async load({ wasOurWrite = false } = {}) {
     try {
       const text = await fsp.readFile(this.path, 'utf8');
       const data = JSON.parse(text);
+      // Counter that _resolveDisplayCategory increments for each removed-
+      // category migration it applies in this load. After sanitize, if > 0
+      // we persist the corrected file so the Perl CGI (which reads the
+      // file directly to populate the picker) sees clean data instead of
+      // the dead category. Without this write-back the daemon's in-memory
+      // state is correct but the picker keeps showing the stale value.
+      this._migratedThisLoad = 0;
       this.devices = this._sanitizeDevices(data);
       this.globals = this._sanitizeGlobals(data);
       this.lastLoadAt = new Date().toISOString();
+      if (this._migratedThisLoad > 0) {
+        await this._persistAfterMigration(this._migratedThisLoad);
+        // Idempotent: only emit on the FIRST load where a banner becomes
+        // pending. Subsequent self-write echos won't re-fire (file is
+        // clean post-persist).
+        if (!this.migrationPending) {
+          this.migrationPending = {
+            count: this._migratedThisLoad,
+            since: this.lastLoadAt,
+          };
+          this.emit('migrated', this.migrationPending);
+        }
+      } else if (!wasOurWrite && this.migrationPending) {
+        // Clean external write after a pending migration → user saved via
+        // the CGI picker, which we treat as implicit acknowledgment.
+        // Banner clears.
+        this.migrationPending = null;
+        this.emit('migration-acknowledged');
+      }
     } catch (err) {
       if (err.code !== 'ENOENT') {
         this.log.warn({ err: err.message }, 'devices.json load failed — treating as empty');
@@ -142,6 +215,41 @@ class DevicesConfig extends EventEmitter {
       this.globals = { ...DEFAULT_GLOBALS,
                        vacationGate: { ...DEFAULT_GLOBALS.vacationGate } };
       this.lastLoadAt = new Date().toISOString();
+    }
+  }
+
+  // Write the in-memory sanitized state back to devices.json after a removed-
+  // category migration. Atomic write (tmp + rename, mode 0600) matches the
+  // Perl CGI writer's idiom so a concurrent CGI read never sees a half-
+  // written file. The write triggers the chokidar watcher, which fires
+  // _reload → load → sanitize on a now-clean file (zero migrations) →
+  // no second write. Two-pass stable, no loop.
+  //
+  // Best-effort: if the write fails (permissions, full disk, …) the in-
+  // memory state is still correct, only the picker keeps showing stale
+  // values. Logged at warn level, no throw.
+  async _persistAfterMigration(count) {
+    const payload = {
+      version: SCHEMA_VERSION,
+      globals: this.globals,
+      devices: this.devices,
+    };
+    const json = JSON.stringify(payload, null, 2) + '\n';
+    const tmp = `${this.path}.tmp.${process.pid}.${Date.now()}`;
+    try {
+      await fsp.writeFile(tmp, json, { encoding: 'utf8', mode: 0o600 });
+      await fsp.rename(tmp, this.path);
+      // chokidar will fire shortly from this write — possibly more than
+      // one event (atomic rename can emit unlink+add on some platforms).
+      // Open a 2 s window during which every reload is treated as ours
+      // so the banner doesn't get prematurely cleared by an echo of our
+      // own write. See `_suppressClearUntil` rationale in the constructor.
+      this._suppressClearUntil = Date.now() + 2000;
+      this.log.info({ migratedCount: count }, 'devices.json rewritten after category migration');
+    } catch (err) {
+      this.log.warn({ err: err.message }, 'failed to persist devices.json after migration — picker may still show stale category until next user save');
+      // Best-effort tmp cleanup.
+      try { await fsp.unlink(tmp); } catch { /* ignore */ }
     }
   }
 
@@ -155,11 +263,12 @@ class DevicesConfig extends EventEmitter {
     for (const d of data.devices) {
       if (!d || typeof d !== 'object') continue;
       if (typeof d.uuid !== 'string' || d.uuid.length < 8) continue;
+      const displayCategory = this._resolveDisplayCategory(d);
       out.push({
         uuid:            d.uuid,
         enabled:         d.enabled !== false,                                 // default true
         friendlyName:    String(d.friendlyName || '').trim(),
-        displayCategory: VALID_CATEGORIES.has(d.displayCategory) ? d.displayCategory : 'OTHER',
+        displayCategory,
         capabilities:    Array.isArray(d.capabilities)
                             ? d.capabilities.filter((c) => typeof c === 'string')
                             : [],
@@ -204,6 +313,38 @@ class DevicesConfig extends EventEmitter {
       });
     }
     return out;
+  }
+
+  // Resolve a stored device's displayCategory through the removed-category
+  // migration and the universal whitelist. Three outcomes:
+  //   1. Removed category → look up the control's type in structureCache and
+  //      use its TYPE_MAP default (Gate → DOOR, Switch+DOORBELL → SWITCH).
+  //      If structureCache is unavailable or doesn't know the control,
+  //      fall back to 'OTHER'.
+  //   2. Otherwise-valid category → pass through unchanged.
+  //   3. Anything else → 'OTHER' (defence in depth against hand-edited JSON).
+  // Hits on outcome (1) are logged so a forensic trail exists; the UI is
+  // intentionally not notified — the next CGI save persists the migrated
+  // value transparently.
+  _resolveDisplayCategory(d) {
+    const stored = d.displayCategory;
+    if (REMOVED_CATEGORIES.has(stored)) {
+      const control = this.structureCache?.getControl(d.uuid);
+      const typeInfo = control ? alexaInfoForType(control.type) : null;
+      const migrated = typeInfo?.category && VALID_CATEGORIES.has(typeInfo.category)
+        ? typeInfo.category
+        : 'OTHER';
+      this.log.info(
+        { uuid: d.uuid, from: stored, to: migrated, type: control?.type || null },
+        'displayCategory no longer supported — migrated to control type default',
+      );
+      // Counter read by load() — drives the write-back AND the banner
+      // 'migrated' event. Initialized to 0 at the top of load(), so the
+      // ++ here is safe even when load is called multiple times.
+      this._migratedThisLoad += 1;
+      return migrated;
+    }
+    return VALID_CATEGORIES.has(stored) ? stored : 'OTHER';
   }
 
   _sanitizeGlobals(data) {

@@ -201,8 +201,24 @@ async function main() {
   });
 
   // --- Devices config (devices.json, hot-reloaded) ------------------------
-  const devicesConfig = new DevicesConfig({ configDir: config.configDir, log });
+  // structureCache is passed in so the removed-category migration (e.g.
+  // legacy GARAGE_DOOR entries → DOOR) can resolve the control type's
+  // default. Available here because structureCache.loadFromDisk() has
+  // already awaited above.
+  const devicesConfig = new DevicesConfig({ configDir: config.configDir, log, structureCache });
   devicesConfigRef = devicesConfig;
+  // Wire the migration-banner events BEFORE start() so the very first
+  // load (which is awaited inside start()) can announce a pending banner
+  // immediately. The CGI reads state.json on every devices-page render
+  // to decide whether to show the "Alexa, discover my devices" notice.
+  devicesConfig.on('migrated', async (info) => {
+    log.info(info, 'category migration applied — devices banner set');
+    await state.update({ devicesMigrationPending: info });
+  });
+  devicesConfig.on('migration-acknowledged', async () => {
+    log.info('user-saved devices.json after migration — clearing devices banner');
+    await state.update({ devicesMigrationPending: null });
+  });
   await devicesConfig.start();
 
   // --- Directive router (Alexa command translator) -------------------------

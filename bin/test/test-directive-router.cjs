@@ -99,7 +99,7 @@ function gateEnv({ position = null, axisInverted = false } = {}) {
     endpointId: 'alexa-gate-uuid',
     friendlyName: 'Driveway Gate',
     description: 'Driveway Gate (Loxone Gate)',
-    displayCategories: ['GARAGE_DOOR'],
+    displayCategories: ['DOOR'],
     capabilities: ['RangeController'],
     uuid: 'gate-uuid',
     msNo: 1,

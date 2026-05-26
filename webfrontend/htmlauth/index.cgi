@@ -384,6 +384,18 @@ $template->param(
 if ($page eq 'devices') {
     my ($catalogue, $cat_source, $cat_error) = fetch_catalogue($cgi);
     my ($devices, $globals) = read_devices_config_and_globals();
+    # Migration banner — surfaced by the daemon when it silently downgraded
+    # a now-removed displayCategory (GARAGE_DOOR / DOORBELL / CAMERA) at
+    # startup. The user needs to re-run Alexa discovery to pick up the
+    # corrected category. Cleared by the daemon when the user next saves
+    # from the picker.
+    my $mig = $state->{devicesMigrationPending};
+    my $mig_count = (ref $mig eq 'HASH' && $mig->{count}) ? int($mig->{count}) : 0;
+    my $mig_text  = '';
+    if ($mig_count > 0) {
+        $mig_text = $L{'DEVICES.MIGRATION_NOTICE'} || '{count} device category(ies) were updated automatically. Say "Alexa, discover my devices" to apply.';
+        $mig_text =~ s/\{count\}/$mig_count/g;
+    }
     $template->param(
         CATALOGUE_AVAILABLE   => $catalogue ? 1 : 0,
         CATALOGUE_SOURCE      => $cat_source,        # 'daemon' | 'disk' | ''
@@ -394,6 +406,8 @@ if ($page eq 'devices') {
         CATALOGUE_JSON => json_for_html_script($catalogue || {}),
         DEVICES_JSON   => json_for_html_script({ version => 1, globals => $globals, devices => $devices }),
         DEVICES_COUNT  => scalar @$devices,
+        MIGRATION_NOTICE      => $mig_text,
+        HAS_MIGRATION_NOTICE  => $mig_count > 0 ? 1 : 0,
     );
 }
 elsif ($page eq 'logs') {
@@ -747,14 +761,19 @@ sub write_devices_config {
 # drops them silently (e.g., a "saved checkbox" that doesn't persist).
 sub sanitize_devices {
     my ($raw) = @_;
+    # GARAGE_DOOR/DOORBELL/CAMERA were removed: GARAGE_DOOR needs
+    # Alexa.ModeController+semantics+voice-PIN; DOORBELL needs
+    # Alexa.DoorbellEventSource; CAMERA needs a stream we can't supply from
+    # a Loxone-only daemon. Daemon-side migration in devices-config.js
+    # remaps existing entries to the control type's default before the
+    # CGI ever reads the persisted file again.
     my %valid_cat = map { $_ => 1 } qw(
         LIGHT SWITCH OUTLET SMARTPLUG FAN
         THERMOSTAT AIR_CONDITIONER VENT
         TEMPERATURE_SENSOR HUMIDITY_SENSOR AIR_QUALITY_MONITOR
         CONTACT_SENSOR MOTION_SENSOR
-        INTERIOR_BLIND EXTERIOR_BLIND GARAGE_DOOR DOOR
+        INTERIOR_BLIND EXTERIOR_BLIND DOOR
         SPEAKER STREAMING_DEVICE MUSIC_SYSTEM
-        DOORBELL CAMERA
         SCENE_TRIGGER ACTIVITY_TRIGGER HUB
         OTHER
     );
