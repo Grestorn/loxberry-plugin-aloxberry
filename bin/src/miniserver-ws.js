@@ -49,6 +49,11 @@ const ID_NAMES = {
 const LOG_RAW_EVENTS = process.env.LOG_RAW_EVENTS === '1';
 const RAW_EVENT_HEX_BYTES = 256; // preview cap per frame
 
+// LOG_KEEPALIVE=1 logs every outbound keepalive probe and its measured RTT.
+// Off by default — at the default 30s cadence this would still emit ~2880
+// lines/day, which is mostly noise once the path is proven healthy.
+const LOG_KEEPALIVE = process.env.LOG_KEEPALIVE === '1';
+
 // 5d.1 hard-codes a generous timeout. Later steps make it configurable.
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
@@ -64,6 +69,16 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const MS_ACTIVITY_TIMEOUT_MS = Number.parseInt(process.env.MS_MAX_IDLE_MS, 10) || 300_000;
 const MS_ACTIVITY_CHECK_MS = 60_000;
 const MS_TCP_KEEPALIVE_IDLE_MS = 30_000;
+
+// Active keepalive probe — primary half-open defense, with the passive
+// activity watchdog above as a backstop. Cadence chosen so that any real
+// path failure is detected and the socket forcibly terminated within
+// ~35s, which keeps Miniserver-side CLOSE_WAIT slots from accumulating
+// faster than the embedded stack releases them. Sends the bare
+// `keepalive` command (no `jdev/` prefix per spec); reply is a header-
+// only ID_KEEPALIVE frame, surfaced via the existing 'keepalive' event.
+const MS_KEEPALIVE_INTERVAL_MS = Number.parseInt(process.env.MS_KEEPALIVE_MS, 10) || 30_000;
+const MS_KEEPALIVE_REPLY_TIMEOUT_MS = 5_000;
 
 class MiniserverWsClient extends EventEmitter {
   constructor({ msConfig, publicKey, log }) {
@@ -91,6 +106,7 @@ class MiniserverWsClient extends EventEmitter {
     // field on the 'closed' log line (forensic for socket-leak analysis).
     this.lastMessageAt = 0;
     this.activityWatchdog = null;
+    this.keepaliveTimer = null;
     this.openedAt = 0;
   }
 
@@ -139,12 +155,14 @@ class MiniserverWsClient extends EventEmitter {
     // Start the activity watchdog only once the full session is up — before
     // key exchange there's no expected inbound traffic cadence to monitor.
     this.startActivityWatchdog();
+    this.startKeepaliveProbe();
   }
 
   async stop({ code = 1000, reason = 'daemon shutdown' } = {}) {
     if (this.stopped) return;
     this.stopped = true;
     this.stopActivityWatchdog();
+    this.stopKeepaliveProbe();
     // Reject any in-flight commands so callers don't hang.
     while (this.responseQueue.length) {
       const p = this.responseQueue.shift();
@@ -369,6 +387,7 @@ class MiniserverWsClient extends EventEmitter {
   handleClose(code, reasonBuf) {
     const reason = reasonBuf ? reasonBuf.toString() : '';
     this.stopActivityWatchdog();
+    this.stopKeepaliveProbe();
     // wasOpenForMs is for forensics on socket-leak / reconnect-storm
     // analysis — quickly tells you if a connection died young (TCP error)
     // versus expired naturally (e.g. token timeout, network blip).
@@ -416,6 +435,62 @@ class MiniserverWsClient extends EventEmitter {
     if (this.activityWatchdog) {
       clearInterval(this.activityWatchdog);
       this.activityWatchdog = null;
+    }
+  }
+
+  // Active keepalive probe. Primary half-open detector; the passive
+  // activity watchdog above is a backstop in case this interval itself
+  // gets starved (blocked event loop, etc.).
+  //
+  // We don't route the request through responseQueue because keepalive
+  // replies are header-only (ID_KEEPALIVE, length=0) — they never
+  // produce a JSON payload, so an awaiter parked in the FIFO queue
+  // would never resolve and would stall every command behind it.
+  // Instead, we listen for the existing 'keepalive' event (emitted by
+  // parseHeader) and use `once()` so each probe gets its own reply
+  // hook. Any keepalive event inside the 5s window counts — including
+  // a server-spontaneous one — which is fine: it still proves the path
+  // is alive in both directions.
+  startKeepaliveProbe() {
+    if (this.keepaliveTimer) return;
+    this.keepaliveTimer = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      const sentAt = Date.now();
+      if (LOG_KEEPALIVE) this.log.info('keepalive probe → miniserver');
+
+      const onReply = () => {
+        clearTimeout(replyTimer);
+        if (LOG_KEEPALIVE) {
+          this.log.info({ rttMs: Date.now() - sentAt }, 'keepalive reply ← miniserver');
+        }
+      };
+      const replyTimer = setTimeout(() => {
+        this.removeListener('keepalive', onReply);
+        this.log.warn(
+          { timeoutMs: MS_KEEPALIVE_REPLY_TIMEOUT_MS },
+          'keepalive probe unanswered — terminating socket',
+        );
+        try { if (this.ws) this.ws.terminate(); } catch { /* ignore */ }
+      }, MS_KEEPALIVE_REPLY_TIMEOUT_MS);
+
+      this.once('keepalive', onReply);
+      try {
+        this.ws.send('keepalive');
+      } catch (err) {
+        clearTimeout(replyTimer);
+        this.removeListener('keepalive', onReply);
+        this.log.warn({ err: err.message }, 'keepalive send failed');
+      }
+    }, MS_KEEPALIVE_INTERVAL_MS);
+    if (typeof this.keepaliveTimer.unref === 'function') {
+      this.keepaliveTimer.unref();
+    }
+  }
+
+  stopKeepaliveProbe() {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
     }
   }
 }
