@@ -2615,11 +2615,17 @@ class DirectiveRouter {
         `Endpoint ${endpointId} has no uuid mapping`);
     }
 
-    // Pulse is Loxone's "momentary press" verb on a Pushbutton uuidAction
-    // — fires the Loxone program logic wired behind the button. Same
-    // wire-format pattern as PowerController On/Off (single token at the
-    // end of the URL path).
-    const command = 'Pulse';
+    // `pulse` is Loxone's "momentary press" verb on a Pushbutton uuidAction
+    // — fires the Loxone program logic wired behind the button (and recalls
+    // a Scene, which is a Pushbutton with type 511). MUST be lowercase: the
+    // v17 Structure File documents the Pushbutton commands as `pulse`/`on`/
+    // `off` (p.110), and Loxone is case-sensitive per control type — same
+    // reason LightController v1 needs lowercase `on`/`off` while v2 wants
+    // capital `On`/`Off`. Capital `Pulse` is NOT in the Pushbutton command
+    // set, so the Miniserver parses it as a numeric digital-input value,
+    // coerces it to 0, and echoes `value=0` with Code 200 — a silent no-op
+    // that looks like success in the log but never fires the scene.
+    const command = 'pulse';
     this.log.debug(
       { endpointId, loxoneUuid: endpoint.uuid, command },
       'SceneController.Activate → Loxone command',

@@ -31,7 +31,7 @@ const PERL_HELPER = path.join(__dirname, '..', 'lox-getstructure.pl');
 //
 // v1 daemon-side implementation status:
 //   PowerController            — implemented (TurnOn/TurnOff via lox-control.pl)
-//   SceneController            — implemented (Activate via Pulse)
+//   SceneController            — implemented (Activate via lowercase `pulse`)
 //   ModeController             — implemented (LightControllerV2 moods)
 //   BrightnessController       — implemented (ColorPickerV2, parent control)
 //   ColorController            — implemented (ColorPickerV2)

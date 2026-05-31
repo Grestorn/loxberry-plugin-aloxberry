@@ -1447,7 +1447,7 @@ function newRouter(endpoints, opts) {
     check(!scene?.properties, 'no properties block (scenes are events, not state)');
   });
 
-  await test('SceneController.Activate sends Pulse to the Loxone UUID', async () => {
+  await test('SceneController.Activate sends pulse to the Loxone UUID', async () => {
     const { router, mock } = newRouter(pushbuttonEndpoints());
     const resp = await router.handle({
       header: { namespace: 'Alexa.SceneController', name: 'Activate', payloadVersion: '3',
@@ -1458,7 +1458,7 @@ function newRouter(endpoints, opts) {
     eq(mock.calls.length, 1, 'one Loxone call');
     eq(mock.calls[0].kind, 'uuid', 'routed via sendByUuid');
     eq(mock.calls[0].uuid, 'pb-uuid', 'uuid');
-    eq(mock.calls[0].command, 'Pulse', 'Pulse verb');
+    eq(mock.calls[0].command, 'pulse', 'pulse verb (lowercase — Loxone is case-sensitive)');
     // Critical: SceneController has its OWN response namespace, not Alexa
     eq(resp?.event?.header?.namespace, 'Alexa.SceneController', 'response namespace');
     eq(resp?.event?.header?.name, 'ActivationStarted', 'response name');
