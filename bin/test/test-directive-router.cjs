@@ -1733,6 +1733,42 @@ function newRouter(endpoints, opts) {
     eq(temp?.value?.scale, 'FAHRENHEIT', 'F scale');
   });
 
+  // Regression: a printf format whose conversion specifier (%.1f) carries a
+  // literal 'f' but no unit letter. The 'f' is float, NOT Fahrenheit. Before
+  // the strip fix this reported FAHRENHEIT, so Alexa converted 24.3 °C to
+  // -4.5° on the app. Cover the bare-degree and explicit-°C printf forms.
+  for (const fmt of ['%.1f°', '%.1f°C', '%i°', '%.1f']) {
+    await test(`printf format ${JSON.stringify(fmt)} → CELSIUS (float 'f' is not Fahrenheit)`, async () => {
+      const env = thermostatEnv({ format: fmt, tempActual: 24.3 });
+      const { router } = newRouter(env.endpoints, env);
+      const resp = await router.handle({
+        header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'mt13b' },
+        endpoint: { endpointId: 'alexa-tst-uuid' },
+        payload: {},
+      });
+      const temp = (resp?.context?.properties || []).find(
+        (p) => p.namespace === 'Alexa.TemperatureSensor'
+      );
+      eq(temp?.value?.scale, 'CELSIUS', `scale for format ${fmt}`);
+      eq(temp?.value?.value, 24.3, 'value passes through unscaled');
+    });
+  }
+
+  // The explicit Fahrenheit printf form must still survive the strip.
+  await test('printf format "%.1f°F" → FAHRENHEIT', async () => {
+    const env = thermostatEnv({ format: '%.1f°F', tempActual: 70 });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'mt13c' },
+      endpoint: { endpointId: 'alexa-tst-uuid' },
+      payload: {},
+    });
+    const temp = (resp?.context?.properties || []).find(
+      (p) => p.namespace === 'Alexa.TemperatureSensor'
+    );
+    eq(temp?.value?.scale, 'FAHRENHEIT', 'F scale survives printf strip');
+  });
+
   await test('Vacation gate blocks SetTargetTemperature (write)', async () => {
     const env = thermostatEnv();
     const { router, mock } = newRouter(env.endpoints, gateOpts(env));

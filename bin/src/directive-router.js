@@ -318,13 +318,22 @@ function brightnessToDimmer(brightness, min, max) {
 }
 
 // Alexa temperature scale ('CELSIUS' | 'FAHRENHEIT') for an IRoomControllerV2.
-// Loxone exposes `details.format` per control (typically '°C' or '°F'),
-// configured at Miniserver setup time. Default to CELSIUS — most EU
-// installs, and matching what users without an explicit format setting
+// Loxone exposes `details.format` per control (typically '%.1f°C', '%.1f°F',
+// or just '%.1f°'), configured at Miniserver setup time. Default to CELSIUS —
+// most EU installs, and matching what users without an explicit unit suffix
 // would expect from a heating control.
+//
+// CRITICAL: the format is a printf template. The conversion specifier
+// ('%.1f', '%d', ...) carries a literal letter that is NOT a unit — the 'f'
+// in '%.1f' is the float conversion, not Fahrenheit. Strip every
+// %-conversion first, then inspect only the unit suffix that remains
+// ('°C' → CELSIUS, '°F' → FAHRENHEIT, bare '°' → default CELSIUS). Without
+// this strip, '%.1f°' was misread as FAHRENHEIT and Alexa converted a 24.3 °C
+// reading to -4.5° on the app.
 function thermostatScaleFor(control) {
   const fmt = String(control?.details?.format || '');
-  return /F/i.test(fmt) && !/C/i.test(fmt) ? 'FAHRENHEIT' : 'CELSIUS';
+  const unit = fmt.replace(/%[-+ #0-9.]*[a-zA-Z]/g, '');
+  return /F/i.test(unit) && !/C/i.test(unit) ? 'FAHRENHEIT' : 'CELSIUS';
 }
 
 // "Mirror around the range" — generalized inversion. For blind-shaped
