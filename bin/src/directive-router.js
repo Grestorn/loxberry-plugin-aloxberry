@@ -12,7 +12,8 @@
 // decides what they mean for the local Loxone install.
 //
 // MVP scope (step 6):
-//   - Alexa.Discovery.Discover       → return a hardcoded test endpoint
+//   - Alexa.Discovery.Discover       → return the user-configured endpoints
+//                                       (empty until devices.json is populated)
 //   - Alexa.PowerController.TurnOn   → write "On"/"Off" to the mapped Loxone VI
 //   - Alexa.PowerController.TurnOff
 //   - Any other namespace/name       → ErrorResponse(INVALID_DIRECTIVE)
@@ -4547,28 +4548,8 @@ function parseActiveMoods(text) {
     .filter((n) => Number.isFinite(n));
 }
 
-// MVP "device mapping": one Loxone VI exposed as a switch named "Plugin Test".
-// In production this comes from data/config.json populated by the picker UI.
-function defaultEndpointsForTesting() {
-  return [
-    {
-      endpointId: 'alexa-pluginTest',
-      friendlyName: 'Plugin Test',
-      displayCategories: ['SWITCH'],
-      capabilities: ['PowerController'],
-      power: {
-        msNo: 1,
-        name: 'PluginTest',
-        onValue: 'On',
-        offValue: 'Off',
-      },
-    },
-  ];
-}
-
 module.exports = {
   DirectiveRouter,
-  defaultEndpointsForTesting,
   parseActiveMoods,
   parseSceneList,
   parseColorState,

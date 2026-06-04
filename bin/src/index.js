@@ -36,7 +36,7 @@ const { MiniserverStateCache } = require('./state-cache');
 const { StateReporter } = require('./state-reporter');
 const { MiniserverSession } = require('./miniserver-session');
 const { LoxoneCommandClient } = require('./loxone-command');
-const { DirectiveRouter, defaultEndpointsForTesting } = require('./directive-router');
+const { DirectiveRouter } = require('./directive-router');
 const { loadOrCreate: loadOrCreateDaemonUuid } = require('./daemon-uuid');
 const { LogLevelWatcher } = require('./loglevel-watcher');
 
@@ -226,14 +226,14 @@ async function main() {
   // directive handler returns ENDPOINT_UNREACHABLE via LoxoneCommandClient
   // when the underlying Perl helper fails. So we always wire it.
   //
-  // Endpoint list is now driven by devices.json. When that file changes
+  // Endpoint list is driven entirely by devices.json. When that file changes
   // (chokidar watcher in DevicesConfig), we swap the router's endpoint set.
-  // Falls back to the hardcoded test endpoint when devices.json is empty
-  // so first-install users still see one device for Alexa to discover.
+  // A fresh install (empty devices.json) exposes NO endpoints — Alexa
+  // discovers nothing until the user explicitly picks devices in the UI.
+  // We deliberately do not seed a placeholder device: nothing reaches the
+  // cloud that the user did not choose to expose.
   const loxoneCommand = new LoxoneCommandClient({ log });
-  const initialEndpoints = devicesConfig.list().length > 0
-    ? devicesConfig.toEndpoints()
-    : defaultEndpointsForTesting();
+  const initialEndpoints = devicesConfig.toEndpoints();
 
   const directiveRouter = new DirectiveRouter({
     loxoneCommand,
@@ -256,9 +256,7 @@ async function main() {
     // instead of unwinding out of the EventEmitter and killing the process.
     log.debug('devices change handler: enter');
     try {
-      const next = devicesConfig.list().length > 0
-        ? devicesConfig.toEndpoints()
-        : defaultEndpointsForTesting();
+      const next = devicesConfig.toEndpoints();
       log.debug({ endpointCount: next.length }, 'devices change handler: toEndpoints done');
       directiveRouter.setEndpoints(next);
       log.debug('devices change handler: setEndpoints done');

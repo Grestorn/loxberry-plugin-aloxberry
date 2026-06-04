@@ -4,10 +4,30 @@
 
 const {
   DirectiveRouter,
-  defaultEndpointsForTesting,
   IMPLEMENTED_CAPABILITIES,
   parseSceneList,
 } = require('../src/directive-router');
+
+// Local test fixture: a single name-based PowerController endpoint. Production
+// no longer ships any default/placeholder endpoint (a fresh install exposes
+// nothing to Alexa), so the router's default-endpoint shape lives here, used
+// only to exercise Discovery / PowerController against a known device.
+function defaultEndpointsForTesting() {
+  return [
+    {
+      endpointId: 'alexa-pluginTest',
+      friendlyName: 'Plugin Test',
+      displayCategories: ['SWITCH'],
+      capabilities: ['PowerController'],
+      power: {
+        msNo: 1,
+        name: 'PluginTest',
+        onValue: 'On',
+        offValue: 'Off',
+      },
+    },
+  ];
+}
 
 const log = {
   debug() {}, info() {}, warn() {}, error() {},
