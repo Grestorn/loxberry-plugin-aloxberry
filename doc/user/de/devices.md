@@ -46,7 +46,7 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 | **Auswahlschalter +/−** (Wertgeber) — `ValueSelector` | Sonstiges | Bereich (Wert) | Einen Zahlenwert hoch/runter stufen. |
 | **Radiotasten** (8× / 16×) — `Radio` | Sonstiges | Modus (benannte Ausgänge) | „stelle *Name* auf *Option*" (einer aktiv). |
 | **Sequenzer** (sequenzielle Steuerung) — `Sequential` | Szene | Modus (Programme) | Benanntes Programm starten; erscheint als Szene. |
-| **Intelligente Raumregelung** — `IRoomControllerV2` | Thermostat | Thermostat + Temperatursensor | „stelle *Name* auf 21 Grad", „wie ist die Temperatur von *Name*?" |
+| **Intelligente Raumregelung** — `IRoomControllerV2` | Thermostat | Thermostat + Temperatursensor (+ optional Feuchte) | „stelle *Name* auf 21 Grad", „wie ist die Temperatur von *Name*?" |
 | **Klimaanlagensteuerung** — `ACControl` | Klimaanlage | Power, Thermostat, Temperatursensor, Modus (Lüfter) | Temperatur, Heizen/Kühlen/Auto, Lüfterstufe. |
 | **Raumlüftungssteuerung** — `Ventilation` | Lüfter | Power, Bereich (Stufe), Modus (+ optional Temp/Feuchte) | Ein/Aus, Stufe, Modus (zeitlich begrenzt). |
 | **Music Server Zone** (Loxone MusicServer, abgekündigt) — `AudioZone` | Streaming-Gerät | Power, Lautsprecher, Wiedergabe, Wiedergabestatus, Schalter, Modus (Quelle) | Lautstärke, Stumm, Play/Pause, Zonenfavorit per Name wählen. |

@@ -45,7 +45,7 @@ device in the *Devices* tab.
 | **Selection Switch +/−** (value selector) — `ValueSelector` | Other | Range (value) | Step a numeric value up/down. |
 | **Radio Buttons** (8× / 16×) — `Radio` | Other | Mode (named outputs) | "set *name* to *option*" (one active at a time). |
 | **Sequencer** (sequential controller) — `Sequential` | Scene | Mode (programs) | Start a named program; appears as a Scene. |
-| **Intelligent Room Controller** — `IRoomControllerV2` | Thermostat | Thermostat + Temperature sensor | "set *name* to 21 degrees", "what's the temperature of *name*?" |
+| **Intelligent Room Controller** — `IRoomControllerV2` | Thermostat | Thermostat + Temperature sensor (+ optional Humidity) | "set *name* to 21 degrees", "what's the temperature of *name*?" |
 | **AC Unit Controller** (air conditioning) — `ACControl` | Air conditioner | Power, Thermostat, Temperature sensor, Mode (fan) | Set temperature, heat/cool/auto, fan speed. |
 | **Room Ventilation Controller** — `Ventilation` | Fan | Power, Range (speed), Mode (+ optional Temp/Humidity) | On/off, speed, mode (timed override). |
 | **Music Server Zone** (Loxone MusicServer, EOL) — `AudioZone` | Streaming device | Power, Speaker, Playback, Playback state, Toggle, Mode (source) | Volume, mute, play/pause, pick a zone favorite by name. |

@@ -580,6 +580,21 @@ class StateReporter {
         uncertaintyInMilliseconds: 0,
       }];
     }
+    // Optional indoor-humidity reading on the room controller. Emitted only
+    // when the user opted into the HumiditySensor role (the capability filter
+    // in _onCacheChange drops it otherwise). Plain percentage like the
+    // Ventilation/InfoOnlyAnalog humidity paths — no {value} wrapper, no scale.
+    if (kind === 'value' && type === 'IRoomControllerV2' && stateName === 'humidityActual') {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return [];
+      return [{
+        namespace: 'Alexa.HumiditySensor',
+        name: 'relativeHumidity',
+        value: Math.round(n),
+        timeOfSample: new Date().toISOString(),
+        uncertaintyInMilliseconds: 0,
+      }];
+    }
     // ACControl mappings. Five independent state UUIDs feeding five Alexa
     // properties spread across four capabilities (PowerController,
     // ThermostatController × 2, TemperatureSensor, ModeController). Each

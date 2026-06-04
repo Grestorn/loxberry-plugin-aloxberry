@@ -165,31 +165,44 @@ function thermostatEnv({
   format = '°C',
   useOverride = false,
   overrideHours = 12,
+  // Optional indoor-humidity reading. `humidity` seeds the humidityActual
+  // state value; `humidityCap` adds the opt-in HumiditySensor capability to
+  // the endpoint (the user-facing choice). `humidityState` controls whether
+  // the structure even declares the humidityActual state UUID (a controller
+  // without a wired humidity input omits it).
+  humidity = null,
+  humidityCap = false,
+  humidityState = true,
 } = {}) {
+  const capabilities = ['ThermostatController', 'TemperatureSensor'];
+  if (humidityCap) capabilities.push('HumiditySensor');
   const endpoints = [{
     endpointId: 'alexa-tst-uuid',
     friendlyName: 'Bedroom Thermostat',
     description: 'Bedroom Thermostat (Loxone IRoomControllerV2)',
     displayCategories: ['THERMOSTAT'],
-    capabilities: ['ThermostatController', 'TemperatureSensor'],
+    capabilities,
     uuid: 'tst-uuid',
     msNo: 1,
     thermostatUseOverride: useOverride,
     thermostatOverrideHours: overrideHours,
   }];
+  const states = {
+    tempActual:    'tst-actual-uuid',
+    tempTarget:    'tst-target-uuid',
+    operatingMode: 'tst-mode-uuid',
+  };
+  if (humidityState) states.humidityActual = 'tst-humid-uuid';
   const structureCache = mockStructure([{
     uuid: 'tst-uuid', type: 'IRoomControllerV2',
     details: { format },
-    states: {
-      tempActual:    'tst-actual-uuid',
-      tempTarget:    'tst-target-uuid',
-      operatingMode: 'tst-mode-uuid',
-    },
+    states,
   }]);
   const values = {};
   if (tempActual != null) values['tst-actual-uuid'] = tempActual;
   if (tempTarget != null) values['tst-target-uuid'] = tempTarget;
   if (opMode     != null) values['tst-mode-uuid']   = opMode;
+  if (humidity   != null) values['tst-humid-uuid']  = humidity;
   return { endpoints, structureCache, stateCache: mockStateCache(values) };
 }
 
@@ -1767,6 +1780,71 @@ function newRouter(endpoints, opts) {
       (p) => p.namespace === 'Alexa.TemperatureSensor'
     );
     eq(temp?.value?.scale, 'FAHRENHEIT', 'F scale survives printf strip');
+  });
+
+  // IRoomControllerV2 optional room-humidity (opt-in HumiditySensor role).
+  await test('IRoomControllerV2 Discovery advertises HumiditySensor when opted in', async () => {
+    const env = thermostatEnv({ humidityCap: true, humidity: 47 });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'mh1' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const ep = resp?.event?.payload?.endpoints?.[0];
+    check(ep.capabilities?.some((c) => c.interface === 'Alexa.HumiditySensor'),
+      'HumiditySensor advertised');
+    check(ep.capabilities?.some((c) => c.interface === 'Alexa.ThermostatController'),
+      'ThermostatController still advertised alongside');
+  });
+
+  await test('IRoomControllerV2 ReportState reports relativeHumidity (rounded, no scale)', async () => {
+    const env = thermostatEnv({ humidityCap: true, humidity: 46.7, tempActual: 24.3 });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'mh2' },
+      endpoint: { endpointId: 'alexa-tst-uuid' },
+      payload: {},
+    });
+    const props = resp?.context?.properties || [];
+    const humid = props.find((p) => p.namespace === 'Alexa.HumiditySensor');
+    eq(humid?.name, 'relativeHumidity', 'relativeHumidity property present');
+    eq(humid?.value, 47, 'humidity rounded to integer percent');
+    check(typeof humid?.value === 'number', 'plain number (not {value} wrapped)');
+    // Temperature still reported correctly alongside.
+    const temp = props.find((p) => p.namespace === 'Alexa.TemperatureSensor');
+    eq(temp?.value?.value, 24.3, 'temperature reported alongside humidity');
+  });
+
+  await test('IRoomControllerV2 without HumiditySensor cap omits relativeHumidity', async () => {
+    // Humidity state present in structure, but the user did NOT opt in.
+    const env = thermostatEnv({ humidityCap: false, humidity: 50 });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'mh3' },
+      endpoint: { endpointId: 'alexa-tst-uuid' },
+      payload: {},
+    });
+    const humid = (resp?.context?.properties || []).find(
+      (p) => p.namespace === 'Alexa.HumiditySensor'
+    );
+    eq(humid, undefined, 'no humidity property without the opt-in capability');
+  });
+
+  await test('IRoomControllerV2 opted-in but no humidityActual state → property omitted', async () => {
+    // Capability checked (e.g. hand-edited devices.json) but the controller
+    // has no wired humidity input: resolver returns null, property omitted,
+    // and nothing crashes.
+    const env = thermostatEnv({ humidityCap: true, humidityState: false });
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'mh4' },
+      endpoint: { endpointId: 'alexa-tst-uuid' },
+      payload: {},
+    });
+    const humid = (resp?.context?.properties || []).find(
+      (p) => p.namespace === 'Alexa.HumiditySensor'
+    );
+    eq(humid, undefined, 'no humidity property when state UUID absent');
   });
 
   await test('Vacation gate blocks SetTargetTemperature (write)', async () => {

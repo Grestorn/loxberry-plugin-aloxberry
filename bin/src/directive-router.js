@@ -3193,6 +3193,20 @@ class DirectiveRouter {
     return (entry && Number.isFinite(entry.value)) ? entry.value : null;
   }
 
+  // IRoomControllerV2 indoor humidity → numeric percent (raw). Present only
+  // when the controller has a wired humidity input; null otherwise (the
+  // picker hides the HumiditySensor role in that case, but resolve defensively
+  // so a hand-edited devices.json can't crash the report).
+  _resolveRoomHumidity(endpoint) {
+    if (!this.structureCache || !this.stateCache || !endpoint?.uuid) return null;
+    const control = this.structureCache.getControl(endpoint.uuid);
+    if (!control || control.type !== 'IRoomControllerV2') return null;
+    const uuid = control.states?.humidityActual;
+    if (!uuid) return null;
+    const entry = this.stateCache.getValue(uuid);
+    return (entry && Number.isFinite(entry.value)) ? entry.value : null;
+  }
+
   // Build a setTimer command string. Loxone wants four positional params:
   // {interval-in-seconds}/{speed-percent}/{modeId}/{timerProfileIdx}.
   // We always use timerProfileIdx=-1 (manual) because Alexa users don't
@@ -4258,9 +4272,10 @@ class DirectiveRouter {
       }
     }
     if (endpoint.capabilities?.includes('HumiditySensor')) {
-      // Two sources of truth:
-      //   InfoOnlyAnalog → value state (user picked the Humidity role)
-      //   Ventilation    → humidityIndoor state
+      // Three sources of truth:
+      //   InfoOnlyAnalog    → value state (user picked the Humidity role)
+      //   Ventilation       → humidityIndoor state
+      //   IRoomControllerV2 → humidityActual state (wired humidity input)
       // Alexa.HumiditySensor.relativeHumidity is a plain percentage
       // (0..100) — NOT wrapped in {value: N} like TemperatureSensor.temperature.
       // Round defensively; Loxone can ship floating-point readings.
@@ -4268,6 +4283,8 @@ class DirectiveRouter {
       let v = null;
       if (control?.type === 'Ventilation') {
         v = this._resolveVentHumidity(endpoint);
+      } else if (control?.type === 'IRoomControllerV2') {
+        v = this._resolveRoomHumidity(endpoint);
       } else {
         v = this._resolveInfoOnlyAnalogValue(endpoint);
       }

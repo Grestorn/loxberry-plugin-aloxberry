@@ -308,6 +308,15 @@ const TYPE_MAP = Object.freeze({
   IRoomControllerV2:   {
     category: 'THERMOSTAT',
     capabilities: ['ThermostatController', 'TemperatureSensor'],
+    // HumiditySensor is additive (NOT exclusive): the room controller's
+    // `humidityActual` state is a genuine extra reading alongside the
+    // thermostat, present only when an indoor-humidity input is wired
+    // (Loxone capabilities bitmask bit 14). The picker offers it as an
+    // opt-in checkbox; filterOptionalCapabilities() hides it for controls
+    // that don't expose `humidityActual` so the user can't pick a role
+    // that would always resolve to null. See structure-file spec
+    // IRoomControllerV2 @States → humidityActual ("Current indoor humidity").
+    optionalCapabilities: ['HumiditySensor'],
     allowedCategories: ['THERMOSTAT', 'AIR_CONDITIONER', 'OTHER'],
     thermostatUseOverride: false,
     thermostatOverrideHours: 12,
@@ -394,6 +403,27 @@ const TYPE_MAP = Object.freeze({
 
 function alexaInfoForType(type) {
   return TYPE_MAP[type] || null;
+}
+
+// Some optional capabilities are only meaningful when the control actually
+// exposes the backing state. IRoomControllerV2 advertises HumiditySensor only
+// when an indoor-humidity input is wired (state `humidityActual`, gated by the
+// Loxone capabilities bitmask bit 14). Without that state the reading would
+// always resolve to null, so we hide the picker checkbox entirely rather than
+// offer a role that does nothing. Returns a (possibly empty) array, or null
+// when the type declares no optional capabilities at all.
+const OPTIONAL_CAPABILITY_REQUIRED_STATE = Object.freeze({
+  IRoomControllerV2: Object.freeze({ HumiditySensor: 'humidityActual' }),
+});
+function filterOptionalCapabilities(type, optionalCaps, states) {
+  if (!Array.isArray(optionalCaps)) return null;
+  const reqs = OPTIONAL_CAPABILITY_REQUIRED_STATE[type];
+  if (!reqs) return [...optionalCaps];
+  return optionalCaps.filter((cap) => {
+    const needState = reqs[cap];
+    return !needState
+      || (states && Object.prototype.hasOwnProperty.call(states, needState));
+  });
 }
 
 // Strict subset — only types whose primary capability is actually wired up
@@ -562,8 +592,12 @@ class StructureCache {
           // MotionSensor alongside or instead of ContactSensor on an
           // InfoOnlyDigital sensor). On `addDevice` they're NOT added to
           // the device's capabilities — only the primary defaults are.
-          optionalCapabilities: Array.isArray(info.optionalCapabilities)
-                                  ? [...info.optionalCapabilities] : null,
+          // Filtered per-control: an optional capability whose backing state
+          // is absent (e.g. IRoomControllerV2 HumiditySensor on a controller
+          // without a wired humidity input) is dropped so the picker never
+          // offers a role that would always resolve to null.
+          optionalCapabilities: filterOptionalCapabilities(
+            type, info.optionalCapabilities, states),
           // Capabilities that are alternative renderings of one underlying
           // Loxone value — the picker treats them as a radio-group (at
           // most one active). Null when the type's capabilities are

@@ -168,5 +168,52 @@ test('getControl resolves by uuid', () => {
   eq(c.getControl('does-not-exist'), null, 'unknown uuid → null');
 });
 
+// IRoomControllerV2 offers the optional HumiditySensor role ONLY when the
+// control actually exposes `humidityActual` (Loxone capabilities bit 14).
+// filterOptionalCapabilities() drops it otherwise so the picker never shows
+// a checkbox that would always resolve to null.
+test('IRoomControllerV2 with humidityActual offers HumiditySensor opt-in', () => {
+  const c = newCache();
+  const parsed = c._parse({
+    rooms: {}, cats: {},
+    controls: {
+      'irc-humid': {
+        name: 'Bad', type: 'IRoomControllerV2', uuidAction: 'irc-humid',
+        states: {
+          tempActual:    's-actual',
+          tempTarget:    's-target',
+          operatingMode: 's-mode',
+          humidityActual: 's-humid',
+        },
+      },
+    },
+  });
+  const irc = parsed.controls.find(x => x.uuid === 'irc-humid');
+  check(irc.defaults.capabilities.indexOf('HumiditySensor') < 0,
+    'HumiditySensor is NOT a default (opt-in only)');
+  check(irc.defaults.optionalCapabilities.indexOf('HumiditySensor') >= 0,
+    'HumiditySensor offered as optional when humidityActual present');
+});
+
+test('IRoomControllerV2 without humidityActual hides HumiditySensor opt-in', () => {
+  const c = newCache();
+  const parsed = c._parse({
+    rooms: {}, cats: {},
+    controls: {
+      'irc-dry': {
+        name: 'Flur', type: 'IRoomControllerV2', uuidAction: 'irc-dry',
+        states: {
+          tempActual:    's-actual',
+          tempTarget:    's-target',
+          operatingMode: 's-mode',
+        },
+      },
+    },
+  });
+  const irc = parsed.controls.find(x => x.uuid === 'irc-dry');
+  check(irc.defaults.optionalCapabilities.indexOf('HumiditySensor') < 0,
+    'HumiditySensor NOT offered when humidityActual absent');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
