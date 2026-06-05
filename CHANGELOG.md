@@ -10,6 +10,36 @@ across the four release artifacts (plugin, daemon, bridge, AWS Lambdas).
 
 ---
 
+## [0.7.3] — 2026-06-04
+
+### Added
+- **Room humidity from the Intelligent Room Controller (V2)** can now be
+  exposed to Alexa as a humidity sensor. It is an opt-in checkbox per
+  device, shown only when the controller actually has a humidity input
+  wired (`humidityActual`); controllers without one never show a dead
+  option. Consistent with the no-auto-exposure principle, the box starts
+  unchecked.
+
+### Fixed
+- **Thermostat temperatures no longer mis-reported as Fahrenheit.** Loxone
+  formats temperatures as `%.1f°` (degree sign, no unit letter), and the
+  `f` in the float format specifier was being read as a Fahrenheit marker.
+  A 24.3 °C reading was labelled Fahrenheit and shown by Alexa as -4.5°.
+  Affects every temperature reading (thermostat state, AC control,
+  ventilation, and analog info values).
+- **Fresh installs no longer advertise a "Plugin Test" switch to Alexa.**
+  An empty device configuration was falling back to a built-in test
+  fixture, exposing a device the user never selected. An empty
+  configuration now exposes zero devices until you pick some in the UI.
+
+## [0.7.2] — 2026-05-31
+
+### Fixed
+- **Loxone scenes (Szenenbausteine) now actually fire.** The activate
+  command was sent as `Pulse`, which the Miniserver silently coerced to a
+  no-op while still replying with success — the scene never triggered.
+  The verb is now sent as lowercase `pulse` as Loxone requires.
+
 ## [0.7.1] — 2026-05-28
 
 ### Added
@@ -151,6 +181,8 @@ skeleton). Detailed history for 0.1.0 through 0.6.0 lived in the
 pre-rebrand "loxhome" repository and is not reflected in this
 changelog.
 
+[0.7.3]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.2...0.7.3
+[0.7.2]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.1...0.7.2
 [0.7.1]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.0...0.7.1
 [0.7.0]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.6.7...0.7.0
 [0.6.7]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.6.6...0.6.7
