@@ -1,6 +1,6 @@
 {
   "name": "@aloxberry/alexa-handler",
-  "version": "0.6.2",
+  "version": "1.0.0",
   "description": "Lambda: Alexa Smart Home directive dispatcher. Verifies the Bearer JWT, looks up the user's Loxberry URL, and forwards the directive over HMAC-signed HTTPS.",
   "private": true,
   "main": "index.js",
