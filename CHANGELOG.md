@@ -10,6 +10,11 @@ across the four release artifacts (plugin, daemon, bridge, AWS Lambdas).
 
 ---
 
+## [1.0.0] — 2026-06-06
+
+First official release. No functional changes over `0.7.3`; this version
+promotes the existing codebase to a stable `1.0.0` milestone.
+
 ## [0.7.3] — 2026-06-04
 
 ### Added
@@ -181,6 +186,7 @@ skeleton). Detailed history for 0.1.0 through 0.6.0 lived in the
 pre-rebrand "loxhome" repository and is not reflected in this
 changelog.
 
+[1.0.0]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.3...1.0.0
 [0.7.3]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.2...0.7.3
 [0.7.2]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.1...0.7.2
 [0.7.1]: https://github.com/Grestorn/loxberry-plugin-aloxberry/compare/0.7.0...0.7.1

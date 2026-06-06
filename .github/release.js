@@ -8,6 +8,11 @@
  *    npm run release:patch | release:minor | release:major     (final)
  *    npm run pre:patch     | pre:minor     | pre:major          (prerelease)
  *
+ * Pass `-- --force` (e.g. `npm run release:major -- --force`) to release every
+ * component even when nothing changed since the last tag. Use this to cut a
+ * milestone (e.g. the first official 1.0.0) off a changelog-only commit, where
+ * the normal change-detection would otherwise report "nothing to do".
+ *
  * What it does
  * ------------
  * 1. Refuses to run on a dirty git tree.
@@ -132,8 +137,10 @@ const gitStatus = () => git('status');
 const getLastTag = () => gitOut('describe', '--tags', '--abbrev=0');
 
 // Did any watched path change between <lastTag> and HEAD? With no lastTag
-// (first release) everything counts as changed.
+// (first release) everything counts as changed. With --force every component
+// counts as changed regardless of the diff (forced milestone release).
 const componentChanged = (lastTag, watch) => {
+  if (FORCE) return true;
   if (!lastTag) return true;
   const out = gitOut('diff', '--name-only', `${lastTag}..HEAD`, '--', ...watch);
   return out !== '';
@@ -231,8 +238,13 @@ const addIfExists = (rel) => {
 
 // ----- main -----------------------------------------------------------------
 
-const LEVEL = process.argv[2]; // major | minor | patch
-const IS_PRERELEASE = process.argv[3] === 'true';
+// argv: [level, isPrerelease, ...flags]. LEVEL and IS_PRERELEASE stay
+// positional (set by the npm scripts); flags are matched anywhere so the
+// `npm run <script> -- --force` passthrough works regardless of order.
+const ARGS = process.argv.slice(2);
+const LEVEL = ARGS[0]; // major | minor | patch
+const IS_PRERELEASE = ARGS[1] === 'true';
+const FORCE = ARGS.includes('--force') || ARGS.includes('-f');
 
 const main = async () => {
   if (!['major', 'minor', 'patch'].includes(LEVEL)) {
@@ -252,6 +264,9 @@ const main = async () => {
   console.log(lastTag
     ? `Last release tag: ${lastTag}`
     : 'No previous release tag — treating this as the first release.');
+  if (FORCE) {
+    console.log('--force: releasing every component regardless of changes.');
+  }
 
   const changed = components.filter((c) => componentChanged(lastTag, c.watch));
   if (changed.length === 0) {
