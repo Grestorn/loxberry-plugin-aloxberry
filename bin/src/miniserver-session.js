@@ -53,6 +53,11 @@ class MiniserverSession extends EventEmitter {
   constructor({
     msConfig, publicKey, getCredentials, tokenStore, stateCache,
     daemonUuid, log,
+    // Poll mode (miniserver-poller.js) runs one short-lived session per
+    // cycle: a dropped/failed connection ends the cycle instead of being
+    // retried here — the poller's own schedule is the retry. false
+    // disables _scheduleReconnect entirely; everything else is unchanged.
+    autoReconnect = true,
     // Test hooks
     reconnectInitialMs = RECONNECT_INITIAL_MS,
     reconnectMaxMs = RECONNECT_MAX_MS,
@@ -65,6 +70,7 @@ class MiniserverSession extends EventEmitter {
     this.tokenStore = tokenStore;
     this.stateCache = stateCache || null;
     this.daemonUuid = daemonUuid;
+    this.autoReconnect = autoReconnect;
     this.log = log.child({ component: 'miniserver-session' });
     this.reconnectInitialMs = reconnectInitialMs;
     this.reconnectMaxMs = reconnectMaxMs;
@@ -278,6 +284,7 @@ class MiniserverSession extends EventEmitter {
   }
 
   _scheduleReconnect() {
+    if (!this.autoReconnect) return;   // poll mode: the poller owns retry cadence
     if (this.stopped || this.reconnectTimer) return;
     const jitter = 1 + (Math.random() * 0.5 - 0.25);
     const delay = Math.min(Math.round(this.currentBackoffMs * jitter), this.reconnectMaxMs);

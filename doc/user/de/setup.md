@@ -98,6 +98,26 @@ Suche, wann immer du Geräte hinzufügst oder umbenennst.
 
 Logs findest du im Tab **Logs** (und per SSH für ein Live-Tail).
 
+### Miniserver-Verbindungsmodus
+
+Standardmäßig hält der Daemon **eine permanente WebSocket-Verbindung** zum
+Miniserver und erhält Zustandsänderungen sofort (Modus *Live*). Bei manchen
+Miniservern — beobachtet auf Gen-2-Hardware — kann der Netzwerk-Stack unter
+dauerhaften Verbindungen Probleme entwickeln, bis hin zum kompletten
+Einfrieren der Ethernet-Schnittstelle.
+
+Wenn das bei dir passiert, stelle *Einrichtung → Einstellungen →
+Miniserver-Verbindung* auf **Polling** um. Der Daemon hält dann **gar keine
+permanente Verbindung mehr**: Im eingestellten Intervall (Standard 10
+Minuten) verbindet er sich kurz, liest einen vollständigen Zustands-Snapshot
+und trennt die Verbindung wieder.
+
+Der Kompromiss: Zustandsänderungen (Sensorwerte, manuell geschaltete
+Lampen, …) erreichen Alexa mit bis zu einem Intervall Verzögerung — sichtbar
+in der Alexa-App und in Routinen, die auf Gerätezustände reagieren.
+**Sprachbefehle sind nicht betroffen**: Sie werden in beiden Modi sofort
+ausgeführt, weil Befehle ohnehin über kurze einmalige HTTP-Anfragen laufen.
+
 ---
 
 ## Eigene Infrastruktur betreiben

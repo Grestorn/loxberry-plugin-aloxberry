@@ -77,6 +77,23 @@ function loadConfig() {
     // it's TLS-terminated and proxied by the user's Caddy/nginx if at all.
     localHttpPort: Number.parseInt(process.env.LOCAL_HTTP_PORT, 10) || 7800,
 
+    // --- miniserver connection mode -------------------------------------
+    // 'websocket' (default): one permanent WS to the Miniserver with live
+    //   push events.
+    // 'poll': NO permanent connection. Every msPollIntervalMinutes the
+    //   daemon opens a short-lived WS, reads the full state dump, and
+    //   disconnects. Escape hatch for installs where the Miniserver's
+    //   embedded network stack has crashed under long-lived connections
+    //   (observed 2026-05/06 despite keepalive + watchdog hardening).
+    msConnectionMode:
+      (process.env.MS_CONNECTION_MODE || 'websocket').trim().toLowerCase() === 'poll'
+        ? 'poll' : 'websocket',
+
+    // Poll cadence in minutes (poll mode only). Clamped 1..1440 — below a
+    // minute the short-lived connections approach permanent-connection
+    // churn; above a day the state cache is too stale to be useful.
+    msPollIntervalMinutes: clampInt(process.env.MS_POLL_INTERVAL_MINUTES, 1, 1440, 10),
+
     // --- tunables ------------------------------------------------------
     // Reconnect backoff (ms). Caps after a few doublings.
     reconnectInitialMs: Number.parseInt(process.env.RECONNECT_INITIAL_MS, 10) || 1000,
@@ -86,6 +103,15 @@ function loadConfig() {
     // HEARTBEAT_INTERVAL_MS (default 30s on the bridge side).
     heartbeatIntervalMs: Number.parseInt(process.env.HEARTBEAT_INTERVAL_MS, 10) || 25000,
   });
+}
+
+// Integer env parser with range clamp. Non-numeric / missing → fallback;
+// out-of-range values clamp rather than reject so a hand-edited daemon.env
+// can't keep the daemon from booting.
+function clampInt(raw, min, max, fallback) {
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
 }
 
 module.exports = { loadConfig };
