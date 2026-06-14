@@ -102,14 +102,27 @@
 
   <div class="ax-row">
     <span class="ax-label"><TMPL_VAR NAME=STATUS.MINISERVER></span>
-    <TMPL_IF MINISERVER_CONNECTED>
-      <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.CONNECTED></span>
-      <span class="ax-hint">
-        <TMPL_VAR EVENTS_SEEN> <TMPL_VAR NAME=STATUS.EVENTS></span>
+    <TMPL_IF MINISERVER_POLL_MODE>
+      <TMPL_IF MINISERVER_CONNECTED>
+        <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.POLLING></span>
+        <span class="ax-hint">
+          <TMPL_IF MINISERVER_LAST_POLL><TMPL_VAR NAME=STATUS.LAST_POLL> <TMPL_VAR MINISERVER_LAST_POLL ESCAPE=HTML> &middot; </TMPL_IF><TMPL_VAR EVENTS_SEEN> <TMPL_VAR NAME=STATUS.EVENTS></span>
+      <TMPL_ELSE>
+        <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.POLL_FAILED></span>
+        <TMPL_IF MINISERVER_ERROR>
+          <span class="ax-err"><TMPL_VAR MINISERVER_ERROR ESCAPE=HTML></span>
+        </TMPL_IF>
+      </TMPL_IF>
     <TMPL_ELSE>
-      <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.DISCONNECTED></span>
-      <TMPL_IF MINISERVER_ERROR>
-        <span class="ax-err"><TMPL_VAR MINISERVER_ERROR ESCAPE=HTML></span>
+      <TMPL_IF MINISERVER_CONNECTED>
+        <span class="ax-pill ax-pill-ok"><TMPL_VAR NAME=STATUS.CONNECTED></span>
+        <span class="ax-hint">
+          <TMPL_VAR EVENTS_SEEN> <TMPL_VAR NAME=STATUS.EVENTS></span>
+      <TMPL_ELSE>
+        <span class="ax-pill ax-pill-bad"><TMPL_VAR NAME=STATUS.DISCONNECTED></span>
+        <TMPL_IF MINISERVER_ERROR>
+          <span class="ax-err"><TMPL_VAR MINISERVER_ERROR ESCAPE=HTML></span>
+        </TMPL_IF>
       </TMPL_IF>
     </TMPL_IF>
   </div>
@@ -271,6 +284,26 @@
     <input type="hidden" name="csrf" value="<TMPL_VAR CSRF_TOKEN>">
 
     <div class="ax-row">
+      <label class="ax-label" for="set-ms-mode"><TMPL_VAR NAME=SETTINGS.MS_MODE></label>
+      <!-- data-role="none" keeps jQuery Mobile (LoxBerry's base UI) from
+           enhancing the select into its oversized custom widget — we want
+           the same native look as the text inputs next to it. -->
+      <select id="set-ms-mode" name="ms_connection_mode" data-role="none"
+              style="padding: 0.35rem 0.5rem; font-size: inherit;"
+              onchange="msModeChanged()">
+        <option value="websocket" <TMPL_UNLESS MS_MODE_POLL_SELECTED>selected</TMPL_UNLESS>><TMPL_VAR NAME=SETTINGS.MS_MODE_WS></option>
+        <option value="poll" <TMPL_IF MS_MODE_POLL_SELECTED>selected</TMPL_IF>><TMPL_VAR NAME=SETTINGS.MS_MODE_POLL></option>
+      </select>
+      <label class="ax-label" for="set-ms-poll-interval"
+             style="min-width: 0; margin-left: 1.25rem;"><TMPL_VAR NAME=SETTINGS.MS_POLL_INTERVAL></label>
+      <input id="set-ms-poll-interval" type="number" name="ms_poll_interval"
+             value="<TMPL_VAR MS_POLL_INTERVAL ESCAPE=HTML>"
+             min="1" max="1440" required
+             style="width: 7rem; padding: 0.35rem 0.5rem;">
+    </div>
+    <div class="ax-hint" id="ms-mode-hint"><TMPL_VAR NAME=SETTINGS.MS_MODE_HINT></div>
+
+    <div class="ax-row" style="margin-top: 0.75rem;">
       <label class="ax-label" for="set-bridge-url"><TMPL_VAR NAME=SETTINGS.BRIDGE_URL></label>
       <input id="set-bridge-url" type="url" name="bridge_url"
              value="<TMPL_VAR BRIDGE_URL ESCAPE=HTML>"
@@ -278,15 +311,27 @@
              style="flex:1; min-width: 18rem; padding: 0.35rem 0.5rem;
                     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"
              placeholder="https://bridge.example.com">
-    </div>
-
-    <div class="ax-row">
-      <label class="ax-label" for="set-port"><TMPL_VAR NAME=SETTINGS.LOCAL_PORT></label>
+      <label class="ax-label" for="set-port"
+             style="min-width: 0; margin-left: 1.25rem;"><TMPL_VAR NAME=SETTINGS.LOCAL_PORT></label>
       <input id="set-port" type="number" name="local_http_port"
              value="<TMPL_VAR LOCAL_HTTP_PORT ESCAPE=HTML>"
              min="1024" max="65535" required
              style="width: 7rem; padding: 0.35rem 0.5rem;">
     </div>
+
+    <script>
+      // The poll interval only applies in poll mode — grey it out otherwise
+      // so the form communicates which fields are live. readOnly (not
+      // disabled) so the value still submits and server-side validation
+      // keeps a single code path for both modes.
+      function msModeChanged() {
+        var poll = document.getElementById('set-ms-mode').value === 'poll';
+        var input = document.getElementById('set-ms-poll-interval');
+        input.readOnly = !poll;
+        input.style.opacity = poll ? '1' : '0.5';
+      }
+      msModeChanged();
+    </script>
 
     <div class="ax-buttons">
       <button type="submit" class="ax-btn ax-btn-primary"><TMPL_VAR NAME=SETTINGS.SAVE_BTN></button>

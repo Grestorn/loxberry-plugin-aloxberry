@@ -184,16 +184,22 @@ elsif ($action eq 'clean_revoked') {
 elsif ($action eq 'save_settings') {
     my $url  = trim_str($cgi->param('bridge_url'));
     my $port = trim_str($cgi->param('local_http_port'));
+    my $ms_mode     = trim_str($cgi->param('ms_connection_mode'));
+    my $ms_interval = trim_str($cgi->param('ms_poll_interval'));
 
     my @errors;
     push @errors, $L{'SETTINGS.ERR_URL'}  unless $url =~ m{^https?://\S+};
     push @errors, $L{'SETTINGS.ERR_PORT'} unless $port =~ /^\d+$/ && $port >= 1024 && $port <= 65535;
+    push @errors, ($L{'SETTINGS.ERR_MS_MODE'} || 'Invalid Miniserver connection mode.')
+        unless $ms_mode =~ /^(websocket|poll)$/;
+    push @errors, ($L{'SETTINGS.ERR_POLL_INTERVAL'} || 'Poll interval must be between 1 and 1440 minutes.')
+        unless $ms_interval =~ /^\d+$/ && $ms_interval >= 1 && $ms_interval <= 1440;
 
     if (@errors) {
         $flash      = join(' / ', @errors);
         $flash_kind = 'error';
     } else {
-        my $err = write_daemon_env($url, $port);
+        my $err = write_daemon_env($url, $port, $ms_mode, $ms_interval);
         if ($err) {
             $flash      = ($L{'SETTINGS.SAVE_FAILED'} || 'Could not write daemon.env: {err}');
             $flash      =~ s/\{err\}/$err/;
@@ -304,11 +310,16 @@ $template->param(
     BRIDGE_ERROR     => $state->{bridge}{lastError} || '',
     BRIDGE_LAST_AT   => $state->{bridge}{lastConnectedAt} || '',
 
-    # Miniserver
+    # Miniserver. In poll mode (`mode` = 'poll' in state.json) the daemon
+    # holds no permanent connection; `connected` then means "last poll
+    # succeeded" and the template renders a polling pill instead of the
+    # connected/disconnected pair.
     MINISERVER_CONNECTED => $state->{miniserver}{connected} ? 1 : 0,
     MINISERVER_ERROR     => $state->{miniserver}{lastError} || '',
     MINISERVER_LAST_EVT  => $state->{miniserver}{lastEventAt} || '',
     EVENTS_SEEN          => $state->{miniserver}{eventsSeen} // 0,
+    MINISERVER_POLL_MODE => (($state->{miniserver}{mode} // '') eq 'poll') ? 1 : 0,
+    MINISERVER_LAST_POLL => $state->{miniserver}{lastPollAt} || '',
 
     # Identity
     USER_ID => $userid,
@@ -326,6 +337,14 @@ $template->param(
     # daemon start (see bin/log-session-create.pl).
     BRIDGE_URL      => $env->{BRIDGE_URL} // '',
     LOCAL_HTTP_PORT => $env->{LOCAL_HTTP_PORT} // '7800',
+    MS_MODE_POLL_SELECTED => ((($env->{MS_CONNECTION_MODE} // 'websocket') eq 'poll') ? 1 : 0),
+    MS_POLL_INTERVAL => (
+        (defined $env->{MS_POLL_INTERVAL_MINUTES}
+         && $env->{MS_POLL_INTERVAL_MINUTES} =~ /^\d+$/
+         && $env->{MS_POLL_INTERVAL_MINUTES} >= 1
+         && $env->{MS_POLL_INTERVAL_MINUTES} <= 1440)
+            ? $env->{MS_POLL_INTERVAL_MINUTES} : 10
+    ),
 
     # Active pairings (data/pairings.json — observed Alexa accounts that
     # have sent at least one directive). Empty list when nothing has run
@@ -980,13 +999,16 @@ sub read_daemon_env {
 #
 # Returns '' on success, error message on failure.
 sub write_daemon_env {
-    my ($url, $port) = @_;
+    my ($url, $port, $ms_mode, $ms_interval) = @_;
+    $ms_mode     = 'websocket' unless defined $ms_mode && $ms_mode =~ /^(websocket|poll)$/;
+    $ms_interval = 10 unless defined $ms_interval && $ms_interval =~ /^\d+$/
+        && $ms_interval >= 1 && $ms_interval <= 1440;
     my $tmp = "$DAEMON_ENV.tmp.$$";
 
     my $body = <<"EOF";
 # Aloxberry daemon runtime config — managed by the plugin web UI.
 # Hand-edits are preserved until the next "Save settings" click in the UI,
-# at which point this file is regenerated with only the two keys below.
+# at which point this file is regenerated with only the keys below.
 # No secrets belong here — the daemon manages its own identity files under
 # $lbpconfigdir/identity/.
 # LOG_LEVEL is NOT in this file: control.sh reads it from LoxBerry's
@@ -999,6 +1021,17 @@ BRIDGE_URL=$url
 # Loopback HTTP port the CGI talks to. Change only if the default is taken
 # on this LoxBerry by another plugin.
 LOCAL_HTTP_PORT=$port
+
+# How the daemon reads Miniserver state.
+#   websocket — one permanent WebSocket, live push events (default).
+#   poll      — NO permanent connection; a short-lived connection every
+#               MS_POLL_INTERVAL_MINUTES reads a full state snapshot.
+#               Use this if the Miniserver's network stack is unstable
+#               under long-lived connections.
+MS_CONNECTION_MODE=$ms_mode
+
+# Poll cadence in minutes (only used when MS_CONNECTION_MODE=poll).
+MS_POLL_INTERVAL_MINUTES=$ms_interval
 EOF
 
     open(my $fh, '>', $tmp) or return "open $tmp: $!";

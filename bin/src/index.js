@@ -35,6 +35,7 @@ const { MiniserverTokenStore } = require('./miniserver-token-store');
 const { MiniserverStateCache } = require('./state-cache');
 const { StateReporter } = require('./state-reporter');
 const { MiniserverSession } = require('./miniserver-session');
+const { MiniserverPoller } = require('./miniserver-poller');
 const { LoxoneCommandClient } = require('./loxone-command');
 const { DirectiveRouter } = require('./directive-router');
 const { loadOrCreate: loadOrCreateDaemonUuid } = require('./daemon-uuid');
@@ -78,6 +79,7 @@ const pairings = new PairingsTracker({ dataDir: config.dataDir, log });
 let bridgeClient = null;
 let localHttp = null;
 let session = null;
+let poller = null;
 let stateFlushTimer = null;
 let devicesConfigRef = null;
 let logLevelWatcher = null;
@@ -125,47 +127,91 @@ async function main() {
       const publicKey = crypto.createPublicKey(pem);
       const tokenStore = new MiniserverTokenStore({ dataDir: config.dataDir, log });
 
-      session = new MiniserverSession({
-        msConfig, publicKey, daemonUuid, tokenStore, stateCache, log,
-        getCredentials: async () => {
-          // Re-read fresh from LoxBerry's config each time we need creds (rare —
-          // only on first auth or after a token kill). Pass_RAW handling lives
-          // in lox-getconfig.pl.
-          const [withCreds] = await loadWithCredentials();
-          return withCreds.getCredentialsForAuth();
-        },
-      });
-      session.on('authenticated', ({ viaCachedToken }) => {
-        log.info({ viaCachedToken }, 'miniserver authenticated');
-      });
-      session.on('subscribed', async () => {
-        await state.update({ miniserver: { connected: true, lastError: null } });
-      });
-      session.on('disconnected', async (info) => {
-        await state.update({
-          miniserver: {
-            connected: false,
-            lastError: info?.reason || (info?.code ? `code ${info.code}` : 'disconnected'),
-          },
+      const getCredentials = async () => {
+        // Re-read fresh from LoxBerry's config each time we need creds (rare —
+        // only on first auth or after a token kill). Pass_RAW handling lives
+        // in lox-getconfig.pl.
+        const [withCreds] = await loadWithCredentials();
+        return withCreds.getCredentialsForAuth();
+      };
+
+      if (config.msConnectionMode === 'poll') {
+        // Poll mode: no permanent connection. A fresh short-lived session
+        // per cycle; the disk-backed token store keeps auth on the cached-
+        // JWT fast path across cycles. `connected` in state.json means
+        // "last poll succeeded" here — the CGI renders it as polling state,
+        // not as a live link.
+        poller = new MiniserverPoller({
+          stateCache,
+          intervalMs: config.msPollIntervalMinutes * 60_000,
+          log,
+          sessionFactory: () => new MiniserverSession({
+            msConfig, publicKey, daemonUuid, tokenStore, stateCache, log,
+            autoReconnect: false,
+            getCredentials,
+          }),
         });
-      });
-      session.on('token-refreshed', (info) => {
-        log.info(info, 'miniserver token refreshed');
-      });
+        poller.on('poll-ok', async () => {
+          await state.update({
+            miniserver: {
+              connected: true,
+              lastError: null,
+              lastPollAt: new Date().toISOString(),
+            },
+          });
+        });
+        poller.on('poll-failed', async ({ reason }) => {
+          await state.update({ miniserver: { connected: false, lastError: reason } });
+        });
+      } else {
+        session = new MiniserverSession({
+          msConfig, publicKey, daemonUuid, tokenStore, stateCache, log,
+          getCredentials,
+        });
+        session.on('authenticated', ({ viaCachedToken }) => {
+          log.info({ viaCachedToken }, 'miniserver authenticated');
+        });
+        session.on('subscribed', async () => {
+          await state.update({ miniserver: { connected: true, lastError: null } });
+        });
+        session.on('disconnected', async (info) => {
+          await state.update({
+            miniserver: {
+              connected: false,
+              lastError: info?.reason || (info?.code ? `code ${info.code}` : 'disconnected'),
+            },
+          });
+        });
+        session.on('token-refreshed', (info) => {
+          log.info(info, 'miniserver token refreshed');
+        });
+      }
 
       // Bootstrap succeeded — clear the sticky bootstrap error. The CGI
       // status panel was otherwise showing the original ENETUNREACH string
-      // forever even though we'd recovered. The `subscribed` handler will
-      // flip `connected` to true once the WS handshake finishes.
-      await state.update({ miniserver: { lastError: null } });
+      // forever even though we'd recovered. The `subscribed` handler (or
+      // the first poll-ok) will flip `connected` to true. The mode +
+      // interval fields let the status page render poll state honestly.
+      await state.update({
+        miniserver: {
+          lastError: null,
+          mode: config.msConnectionMode,
+          pollIntervalMinutes: config.msConnectionMode === 'poll'
+            ? config.msPollIntervalMinutes : null,
+        },
+      });
       if (bootstrapAttempt > 1) {
         log.info({ attempt: bootstrapAttempt }, 'miniserver bootstrap succeeded after retry');
       }
 
-      // Fire-and-forget — _connectOnce handles its own errors and reschedules.
-      session.start().catch((err) => {
-        log.warn({ err: err.message }, 'miniserver session start threw — reconnect loop is on');
-      });
+      if (poller) {
+        poller.start();
+      } else {
+        // Fire-and-forget — _connectOnce handles its own errors and reschedules.
+        session.start().catch((err) => {
+          log.warn({ err: err.message }, 'miniserver session start threw — reconnect loop is on');
+        });
+      }
     } catch (err) {
       // Pick the next backoff slot; clamp to the last (cap) entry.
       const slot = Math.min(bootstrapAttempt - 1, BOOTSTRAP_RETRY_BACKOFF_MS.length - 1);
@@ -373,6 +419,10 @@ async function shutdown(signal) {
   if (bridgeClient) {
     try { await bridgeClient.stop(); }
     catch (err) { log.warn({ err: err.message }, 'bridge stop raised'); }
+  }
+  if (poller) {
+    try { await poller.stop(); }
+    catch (err) { log.warn({ err: err.message }, 'miniserver poller stop raised'); }
   }
   if (session) {
     try { await session.stop(); }

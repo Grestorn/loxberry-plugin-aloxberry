@@ -95,6 +95,24 @@ whenever you add or rename devices.
 
 Logs are available in the **Logs** tab (and via SSH for a live tail).
 
+### Miniserver connection mode
+
+By default the daemon keeps **one permanent WebSocket** to the Miniserver and
+receives state changes instantly (*Live* mode). A few Miniservers — observed
+on Gen 2 hardware — can develop network‑stack problems under long‑lived
+connections, up to the Ethernet interface freezing entirely.
+
+If that happens to you, switch *Setup → Settings → Miniserver connection* to
+**Polling**. The daemon then holds **no permanent connection at all**: at the
+configured interval (default 10 minutes) it connects briefly, reads a full
+state snapshot, and disconnects again.
+
+Trade‑off: state changes (sensor values, manually switched lights, …) reach
+Alexa with up to one interval of delay — visible in the Alexa app and in
+Routines triggered by device state. **Voice commands are not affected**: they
+are executed immediately in both modes, because commands use short one‑shot
+HTTP requests anyway.
+
 ---
 
 ## Running your own infrastructure
