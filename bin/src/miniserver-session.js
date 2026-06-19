@@ -62,6 +62,7 @@ class MiniserverSession extends EventEmitter {
     reconnectInitialMs = RECONNECT_INITIAL_MS,
     reconnectMaxMs = RECONNECT_MAX_MS,
     refreshLeadSeconds = 0,        // schedule refresh this far before validUntil (test override)
+    wsClientFactory = null,        // () => MiniserverWsClient-like; injected in unit tests
   }) {
     super();
     this.msConfig = msConfig;
@@ -75,6 +76,12 @@ class MiniserverSession extends EventEmitter {
     this.reconnectInitialMs = reconnectInitialMs;
     this.reconnectMaxMs = reconnectMaxMs;
     this.refreshLeadSeconds = refreshLeadSeconds;
+    this.wsClientFactory = wsClientFactory
+      || (() => new MiniserverWsClient({
+        msConfig: this.msConfig,
+        publicKey: this.publicKey,
+        log: this.log,
+      }));
 
     this.wsClient = null;
     this.currentToken = null;        // { token, key, validUntil, snr, username }
@@ -102,18 +109,17 @@ class MiniserverSession extends EventEmitter {
 
   // ----- one connect-auth-subscribe cycle ------------------------------------
 
-  async _connectOnce() {
+  // forceFullAuth: skip the cached-token fast path and go straight to getjwt.
+  // Used by the self-heal retry below — once a cached token has been rejected,
+  // re-attempting it would just fail the same way.
+  async _connectOnce(forceFullAuth = false) {
     if (this.stopped) return;
 
-    this.wsClient = new MiniserverWsClient({
-      msConfig: this.msConfig,
-      publicKey: this.publicKey,
-      log: this.log,
-    });
+    this.wsClient = this.wsClientFactory();
 
     try {
       await this.wsClient.start();    // keyexchange
-      const usedToken = await this._authenticate();
+      const usedToken = await this._authenticate(forceFullAuth);
       this.log.info({ via: usedToken ? 'authwithtoken' : 'getjwt' }, 'authenticated');
       this.emit('authenticated', { viaCachedToken: usedToken });
 
@@ -128,6 +134,25 @@ class MiniserverSession extends EventEmitter {
       // Successful cycle resets backoff.
       this.currentBackoffMs = this.reconnectInitialMs;
     } catch (err) {
+      // Self-heal a stale cached token. When authwithtoken fails the
+      // Miniserver closes the WebSocket (it authenticates once per
+      // connection), so the getjwt fallback cannot run on this socket — it
+      // dies with "socket closed before response". Tear this socket down and
+      // retry ONCE on a fresh connection, going straight to getjwt. If the
+      // Miniserver actually rejected the token (answered Code≠200), discard
+      // it too, otherwise the next cycle reloads it and loops on the same 401.
+      if (err.cachedTokenRejected && !forceFullAuth && !this.stopped) {
+        if (err.clearToken) {
+          this.log.warn('Miniserver rejected the cached token — discarding it and re-authenticating with credentials');
+          try { await this.tokenStore.clear(); } catch { /* ignore */ }
+        } else {
+          this.log.warn('cached-token auth did not complete — re-authenticating with credentials on a fresh connection');
+        }
+        try { await this.wsClient?.stop(); } catch { /* ignore */ }
+        this.wsClient = null;
+        return this._connectOnce(true);
+      }
+
       this.log.warn({ err: err.message }, 'connect cycle failed');
 
       // 503 means "Miniserver socket table is full". Hitting it harder
@@ -155,23 +180,32 @@ class MiniserverSession extends EventEmitter {
   }
 
   // Returns true if we authenticated with cached token, false if full getjwt.
-  async _authenticate() {
-    const expectedSnr = undefined; // we don't know SNR until apiKey probe — defer
-    const cached = await this.tokenStore.load({
-      expectedSnr,
-      expectedUsername: this._lastUsername(),
-    });
+  // forceFullAuth skips the cache (the self-heal retry after a rejected token).
+  async _authenticate(forceFullAuth = false) {
+    if (!forceFullAuth) {
+      const expectedSnr = undefined; // we don't know SNR until apiKey probe — defer
+      const cached = await this.tokenStore.load({
+        expectedSnr,
+        expectedUsername: this._lastUsername(),
+      });
 
-    if (cached) {
-      try {
-        await this._authWithToken(cached);
-        this.currentToken = cached;
-        return true;
-      } catch (err) {
-        this.log.warn({ err: err.message }, 'authwithtoken failed — falling back to getjwt');
-        // Don't clear the cache yet — getjwt may still succeed; if it does
-        // we overwrite anyway. If it doesn't, the cache is the least of our
-        // problems.
+      if (cached) {
+        try {
+          await this._authWithToken(cached);
+          this.currentToken = cached;
+          return true;
+        } catch (err) {
+          // The Miniserver closes the socket after a failed auth, so we
+          // cannot fall back to getjwt on this connection. Signal
+          // _connectOnce to retry on a fresh socket. If the server actually
+          // answered Code≠200 the token is genuinely bad — flag it for
+          // deletion; a socket-level failure (no answer) leaves it intact.
+          this.log.warn({ err: err.message }, 'authwithtoken failed — reconnecting to authenticate with credentials');
+          const e = new Error(`cached token rejected: ${err.message}`);
+          e.cachedTokenRejected = true;
+          e.clearToken = err.authCode != null;
+          throw e;
+        }
       }
     }
 
@@ -189,7 +223,15 @@ class MiniserverSession extends EventEmitter {
     // unlike getjwt/refreshjwt which do. Per protocol PDF p.27 and confirmed
     // against PyLoxone. Adding the prefix returns Code:400 (Bad Request).
     const response = await this.wsClient.sendEncrypted(`authwithtoken/${hash}/${stored.username}`);
-    if (response?.LL?.Code !== '200') throw new Error(`authwithtoken failed: Code=${response?.LL?.Code}`);
+    const code = response?.LL?.Code;
+    if (code !== '200') {
+      // authCode is set only when the Miniserver actually answered — it marks
+      // a genuine token rejection (vs. a socket dropping mid-handshake), so
+      // the caller knows the cached token is bad and should be discarded.
+      const err = new Error(`authwithtoken failed: Code=${code}`);
+      err.authCode = code;
+      throw err;
+    }
   }
 
   async _fullAuthAndCache() {
