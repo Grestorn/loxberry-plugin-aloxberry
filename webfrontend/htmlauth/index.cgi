@@ -703,6 +703,14 @@ sub parse_loxapp3_minimal {
                 displayCategory => $info->{category},
                 capabilities    => $info->{capabilities},
             } : undef,
+            # TimedSwitch only: expose the stairwell-vs-comfort flag so the
+            # picker can label the timed-trigger option correctly. We ship a
+            # minimal `details` (just this key) rather than the whole Loxone
+            # details block to keep the embedded catalogue lean.
+            ($type eq 'TimedSwitch' ? (details => {
+                isStairwayLs => ((ref $ctrl->{details} eq 'HASH'
+                                  && $ctrl->{details}{isStairwayLs}) ? \1 : \0),
+            }) : ()),
             uuidAction => $ctrl->{uuidAction} // $uuid,
         };
     };
@@ -855,6 +863,11 @@ sub sanitize_devices {
                                         : JSON::PP::false),
             thermostatUseOverride   => (exists $d->{thermostatUseOverride}
                                         ? ($d->{thermostatUseOverride} ? JSON::PP::true : JSON::PP::false)
+                                        : JSON::PP::false),
+            # TimedSwitch "trigger the timer instead of permanent on" opt-in.
+            # Default false (a fresh TimedSwitch acts like a plain switch).
+            timedSwitchPulse        => (exists $d->{timedSwitchPulse}
+                                        ? ($d->{timedSwitchPulse} ? JSON::PP::true : JSON::PP::false)
                                         : JSON::PP::false),
             thermostatOverrideHours => $override_hours,
             audioVolumeStep         => $vol_step,

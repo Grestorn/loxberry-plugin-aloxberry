@@ -66,8 +66,32 @@ const TYPE_MAP = Object.freeze({
   TimedSwitch: {
     category: 'SWITCH',
     capabilities: ['PowerController'],
+    // SceneController is an opt-in ALTERNATIVE to PowerController. A Loxone
+    // TimedSwitch is fundamentally a momentary `pulse` trigger, which maps
+    // perfectly onto an Alexa Scene: stateless and infinitely re-triggerable,
+    // unlike a PowerController switch (which Alexa de-duplicates once it
+    // believes the device is on — so a comfort-switch toggle can't be
+    // re-fired). The daemon needs no special-casing: _handleSceneActivate
+    // already sends `pulse` for any uuid endpoint. Pair it with the
+    // SCENE_TRIGGER / ACTIVITY_TRIGGER category so Alexa renders it as a Scene.
+    optionalCapabilities: ['SceneController'],
+    // Stateful switch vs. stateless trigger are two incompatible renderings of
+    // the same control — the picker enforces "exactly one active".
+    exclusiveCapabilities: ['PowerController', 'SceneController'],
     allowedCategories: ['SWITCH', 'OUTLET', 'SMARTPLUG', 'FAN', 'LIGHT',
-                        'DOOR', 'OTHER'],
+                        'DOOR', 'SCENE_TRIGGER', 'ACTIVITY_TRIGGER', 'OTHER'],
+    // Picker-only metadata: which Alexa categories belong with each member of
+    // the exclusive-capability group. The picker keeps the capability and the
+    // category in lockstep (pick a scene category → SceneController, and vice
+    // versa) so a user can never produce a nonsensical pair like a
+    // SceneController on a SWITCH tile. OTHER is intentionally in BOTH lists
+    // (a deliberate catch-all), so selecting it never force-flips the
+    // capability. The union of these lists equals allowedCategories. The
+    // daemon ignores this field — it's consumed only by devices.html.
+    capabilityCategories: {
+      PowerController: ['SWITCH', 'OUTLET', 'SMARTPLUG', 'FAN', 'LIGHT', 'DOOR', 'OTHER'],
+      SceneController: ['SCENE_TRIGGER', 'ACTIVITY_TRIGGER', 'OTHER'],
+    },
   },
   Pushbutton: {
     category: 'SCENE_TRIGGER',
@@ -241,6 +265,17 @@ const TYPE_MAP = Object.freeze({
     // picker enforces "at most one active" — checking one clears the rest.
     exclusiveCapabilities: ['ContactSensor', 'MotionSensor', 'ModeController'],
     allowedCategories: ['CONTACT_SENSOR', 'MOTION_SENSOR', 'OTHER'],
+    // Clean category coupling for the two SENSOR arms only — the picker keeps
+    // capability and category in step (pick MOTION_SENSOR → MotionSensor, etc.).
+    // The custom-label ModeController arm is deliberately LEFT OUT of the map:
+    // it has no natural sensor category, so it stays uncoupled and may use any
+    // allowed category. OTHER appears in BOTH mapped lists, so selecting OTHER
+    // never force-flips the capability — it's a valid catch-all for every arm,
+    // including the unmapped ModeController.
+    capabilityCategories: {
+      ContactSensor: ['CONTACT_SENSOR', 'OTHER'],
+      MotionSensor:  ['MOTION_SENSOR', 'OTHER'],
+    },
     // Reed switches on doors/windows commonly report Loxone-active=1 when
     // the contact is OPEN (magnet away). Alexa's wire convention is the
     // opposite: ContactSensor.DETECTED means contact PRESENT (door closed),
@@ -261,6 +296,12 @@ const TYPE_MAP = Object.freeze({
     // never both. Exclusive in the picker.
     exclusiveCapabilities: ['TemperatureSensor', 'HumiditySensor'],
     allowedCategories: ['TEMPERATURE_SENSOR', 'HUMIDITY_SENSOR', 'OTHER'],
+    // Both arms couple cleanly to a sensor category (no ModeController arm
+    // here). OTHER is shared so it never force-flips the capability.
+    capabilityCategories: {
+      TemperatureSensor: ['TEMPERATURE_SENSOR', 'OTHER'],
+      HumiditySensor:    ['HUMIDITY_SENSOR', 'OTHER'],
+    },
   },
   // PresenceDetector — Loxone presence/motion sensor. Single `active`
   // state (0/1). Maps cleanly to Alexa.MotionSensor. No directives —
@@ -605,9 +646,20 @@ class StructureCache {
           // which a real vent unit genuinely has alongside the fan).
           exclusiveCapabilities: Array.isArray(info.exclusiveCapabilities)
                                   ? [...info.exclusiveCapabilities] : null,
+          // Picker-only category↔capability linkage (see TYPE_MAP). Passed
+          // through verbatim; null for types that don't couple the two.
+          capabilityCategories: info.capabilityCategories
+                                  ? JSON.parse(JSON.stringify(info.capabilityCategories))
+                                  : null,
           // Per-type defaults the picker uses to pre-fill device form
           // fields. Each maps to one Setting-row control in devices.html.
           rangeAxisInverted:       info.rangeAxisInverted === true,
+          // TimedSwitch "trigger the timer" opt-in. No control type defaults
+          // this on (a fresh TimedSwitch behaves like a plain switch until
+          // the user opts in), so it's always false here — but kept in the
+          // defaults block so the picker seeds the field uniformly with the
+          // other per-device booleans.
+          timedSwitchPulse:        info.timedSwitchPulse === true,
           thermostatUseOverride:   info.thermostatUseOverride === true,
           thermostatOverrideHours: Number.isFinite(info.thermostatOverrideHours)
                                      ? info.thermostatOverrideHours : 12,

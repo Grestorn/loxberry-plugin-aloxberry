@@ -34,7 +34,7 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 | Loxone-Funktionsbaustein (Loxone Config / App) — *Plugin-Typ* | Standard-Alexa-Kategorie | Fähigkeiten | Was du sagst / was es tut |
 |---|---|---|---|
 | **Schalter** — `Switch` | Schalter | Power | „Alexa, schalte *Name* ein/aus." |
-| **Treppenlicht-Schalter** / zeitgesteuert — `TimedSwitch` | Schalter | Power | Ein/Aus (Loxone steuert den Timer). |
+| **Treppenlicht-Schalter** / Komfortschalter — `TimedSwitch` | Schalter | Power **oder** Szene | Ein/Aus. Zwei Wege zum Loxone-Timer: (a) **Power** behalten und **Timer auslösen / Umschalten mit Timer** anhaken (siehe Einstellungen unten); oder (b) als **Szene** nutzen — entweder die Fähigkeit **Szene** anhaken *oder* eine `SCENE_TRIGGER`/`ACTIVITY_TRIGGER`-Kategorie wählen, der Picker stellt das jeweils andere passend um — sodass jedes „Alexa, schalte *Name* ein" einfach den Timer auslöst: zustandslos und beliebig oft wiederholbar, wie ein Tastendruck. |
 | **Taster** — `Pushbutton` | Szene | Szene | Einmaliger Auslöser: „Alexa, schalte *Name* ein" / in Routinen. |
 | **Dimmer** — `Dimmer` | Licht | Power, Helligkeit | Ein/Aus, „stelle *Name* auf 40 %", „dimme *Name*". |
 | **Lichtsteuerung** — `LightControllerV2` / `LightController` | Licht | Power, Modus (Lichtszenen) | Ein/Aus, „stelle *Name* auf *Szene*". |
@@ -113,6 +113,7 @@ Diese erscheinen nur bei den Typen, für die sie gelten:
 | Einstellung | Gilt für | Warum ändern |
 |---|---|---|
 | **Richtung umkehren** | Jalousien, Fenster, Tore, Regler | Wenn 0 % / 100 % entgegengesetzt zu Alexas Erwartung laufen (z. B. ungewöhnlich verdrahtete Jalousie). |
+| **Timer auslösen** / **Umschalten mit Timer** | Zeitgesteuerter Schalter | Lässt „Alexa, einschalten" den Loxone-Timer auslösen, statt dauerhaft einzuschalten. Beim **Treppenlicht-Schalter** geht das Licht für die eingestellte Zeit an und dann von selbst aus („Timer auslösen"). Beim **Komfortschalter** schaltet derselbe Befehl ein (mit Timer), wenn es aus ist, und aus, wenn es bereits an ist („Umschalten mit Timer"). „Ausschalten" schaltet immer sofort aus. Die Timer-Dauer wird in Loxone Config eingestellt. |
 | **Überschreibung + Stunden** | Raumregler | Eine Alexa-Temperaturänderung als **zeitlich begrenzte Übersteuerung** senden statt den Loxone-Zeitplan dauerhaft zu ändern. Stunden = Dauer (1–168). |
 | **Schritt** | Audiozonen | Um wie viel Prozent „lauter/leiser" die Lautstärke ändert (1–50). |
 | **Logik umkehren** | Sensoren | Erkannt/frei (offen/geschlossen) tauschen, wenn dein Kontakt invertiert verdrahtet ist. |

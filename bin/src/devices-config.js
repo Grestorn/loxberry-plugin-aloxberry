@@ -286,6 +286,12 @@ class DevicesConfig extends EventEmitter {
         // (or a hand-edit) can't push an "override for 100 years" timer.
         thermostatUseOverride:   d.thermostatUseOverride === true,
         thermostatOverrideHours: clampOverrideHours(d.thermostatOverrideHours),
+        // TimedSwitch "trigger the timer instead of switching on permanently".
+        // When true, PowerController.TurnOn sends `pulse` (timed) rather than
+        // `On` (permanent). Default false preserves the historical permanent-on
+        // behaviour for existing devices.json entries. Only meaningful for
+        // TimedSwitch endpoints; ignored otherwise.
+        timedSwitchPulse:        d.timedSwitchPulse === true,
         // Step size used for AdjustVolume when Alexa sends volumeDefault=true
         // ("louder"/"quieter" with no explicit amount). Clamped 1..50 so a
         // hand-edited devices.json can't push a runaway step.
@@ -398,6 +404,8 @@ class DevicesConfig extends EventEmitter {
         // IRoomControllerV2 endpoints). The handler reads both fields.
         thermostatUseOverride:   d.thermostatUseOverride === true,
         thermostatOverrideHours: clampOverrideHours(d.thermostatOverrideHours),
+        // TimedSwitch timed-trigger flag — handler reads it in _handlePower.
+        timedSwitchPulse:        d.timedSwitchPulse === true,
         // Volume step (Speaker AdjustVolume) — only meaningful for
         // AudioZone endpoints. Handler reads at directive time.
         audioVolumeStep:         clampVolumeStep(d.audioVolumeStep),

@@ -133,6 +133,31 @@ function gateEnv({ position = null, axisInverted = false } = {}) {
   return { endpoints, structureCache, stateCache };
 }
 
+// TimedSwitch environment. `pulse` is the per-device timed-trigger opt-in
+// (endpoint.timedSwitchPulse); `isStairwayLs` only changes the picker label,
+// not the wire command, so the daemon test doesn't depend on it.
+function timedSwitchEnv({
+  pulse = false, isStairwayLs = true,
+  capabilities = ['PowerController'], displayCategories = ['LIGHT'],
+} = {}) {
+  const endpoints = [{
+    endpointId: 'alexa-tsw-uuid',
+    friendlyName: 'Stairwell Light',
+    description: 'Stairwell Light (Loxone TimedSwitch)',
+    displayCategories,
+    capabilities,
+    uuid: 'tsw-uuid',
+    msNo: 1,
+    timedSwitchPulse: pulse,
+  }];
+  const structureCache = mockStructure([{
+    uuid: 'tsw-uuid', type: 'TimedSwitch',
+    details: { isStairwayLs },
+    states: { active: 'tsw-active-uuid' },
+  }]);
+  return { endpoints, structureCache, stateCache: mockStateCache({}) };
+}
+
 // Slider environment. Native range comes from `details`; defaults to 0..100
 // but a 15..25 example is more realistic. Value is the raw slider reading.
 function sliderEnv({ value = null, min = 0, max = 100, step = 1, axisInverted = false } = {}) {
@@ -732,6 +757,73 @@ function newRouter(endpoints, opts) {
       payload: {},
     });
     eq(mock.calls[0].value, 'Off', 'value=Off');
+  });
+
+  await test('TimedSwitch with pulse opt-in: TurnOn sends "pulse"', async () => {
+    const env = timedSwitchEnv({ pulse: true });
+    const { router, mock } = newRouter(env.endpoints, {
+      structureCache: env.structureCache, stateCache: env.stateCache,
+    });
+    await router.handle({
+      header: { namespace: 'Alexa.PowerController', name: 'TurnOn', payloadVersion: '3', messageId: 'tsw1' },
+      endpoint: { endpointId: 'alexa-tsw-uuid' },
+      payload: {},
+    });
+    eq(mock.calls.length, 1, 'one Loxone call');
+    eq(mock.calls[0].kind, 'uuid', 'uuid command path');
+    eq(mock.calls[0].command, 'pulse', 'TurnOn → pulse (timed)');
+  });
+
+  await test('TimedSwitch with pulse opt-in: TurnOff still sends "Off"', async () => {
+    const env = timedSwitchEnv({ pulse: true });
+    const { router, mock } = newRouter(env.endpoints, {
+      structureCache: env.structureCache, stateCache: env.stateCache,
+    });
+    await router.handle({
+      header: { namespace: 'Alexa.PowerController', name: 'TurnOff', payloadVersion: '3', messageId: 'tsw2' },
+      endpoint: { endpointId: 'alexa-tsw-uuid' },
+      payload: {},
+    });
+    eq(mock.calls[0].command, 'Off', 'TurnOff → Off (direct off)');
+  });
+
+  await test('TimedSwitch without pulse opt-in: TurnOn sends permanent "On"', async () => {
+    const env = timedSwitchEnv({ pulse: false });
+    const { router, mock } = newRouter(env.endpoints, {
+      structureCache: env.structureCache, stateCache: env.stateCache,
+    });
+    await router.handle({
+      header: { namespace: 'Alexa.PowerController', name: 'TurnOn', payloadVersion: '3', messageId: 'tsw3' },
+      endpoint: { endpointId: 'alexa-tsw-uuid' },
+      payload: {},
+    });
+    eq(mock.calls[0].command, 'On', 'TurnOn → On (permanent, default behaviour)');
+  });
+
+  await test('TimedSwitch exposed as SceneController: Discovery + Activate→pulse', async () => {
+    const env = timedSwitchEnv({
+      capabilities: ['SceneController'], displayCategories: ['SCENE_TRIGGER'],
+    });
+    const { router, mock } = newRouter(env.endpoints, {
+      structureCache: env.structureCache, stateCache: env.stateCache,
+    });
+    // Discovery advertises the stateless SceneController (re-triggerable).
+    const disc = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'tsw-d' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const ep = disc?.event?.payload?.endpoints?.find((e) => e.endpointId === 'alexa-tsw-uuid');
+    const scene = ep?.capabilities?.find((c) => c.interface === 'Alexa.SceneController');
+    check(!!scene, 'declares Alexa.SceneController');
+    eq(scene.supportsDeactivation, false, 'supportsDeactivation=false');
+    // Activate fires the same `pulse` verb — the timed trigger.
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.SceneController', name: 'Activate', payloadVersion: '3', messageId: 'tsw-a' },
+      endpoint: { endpointId: 'alexa-tsw-uuid' },
+      payload: { cause: { type: 'VOICE_INTERACTION' } },
+    });
+    eq(mock.calls[0].command, 'pulse', 'Activate → pulse');
+    eq(resp?.event?.header?.name, 'ActivationStarted', 'ActivationStarted response');
   });
 
   await test('TurnOn against unknown endpoint → NO_SUCH_ENDPOINT', async () => {

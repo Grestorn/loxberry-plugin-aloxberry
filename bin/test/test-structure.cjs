@@ -161,6 +161,56 @@ test('alexaInfoForType is exported and queryable', () => {
   eq(alexaInfoForType('NoSuchType'), null, 'unknown type returns null');
 });
 
+test('TimedSwitch offers SceneController as an exclusive alternative to Power', () => {
+  const info = alexaInfoForType('TimedSwitch');
+  eq(info.capabilities[0], 'PowerController', 'primary cap is PowerController');
+  check(info.optionalCapabilities.indexOf('SceneController') >= 0,
+    'SceneController offered as optional');
+  // Exclusive group means the picker enforces "exactly one of the two".
+  check(info.exclusiveCapabilities.indexOf('PowerController') >= 0
+        && info.exclusiveCapabilities.indexOf('SceneController') >= 0,
+    'Power/Scene are mutually exclusive');
+  // Scene-style categories must be selectable so it renders as a Scene.
+  check(info.allowedCategories.indexOf('SCENE_TRIGGER') >= 0,
+    'SCENE_TRIGGER allowed');
+  check(info.allowedCategories.indexOf('ACTIVITY_TRIGGER') >= 0,
+    'ACTIVITY_TRIGGER allowed');
+  // Picker coupling map: each capability lists its categories; OTHER shared.
+  const cc = info.capabilityCategories;
+  check(!!cc, 'declares capabilityCategories');
+  check(cc.SceneController.indexOf('SCENE_TRIGGER') >= 0,
+    'SceneController → SCENE_TRIGGER');
+  check(cc.PowerController.indexOf('SWITCH') >= 0,
+    'PowerController → SWITCH');
+  check(cc.PowerController.indexOf('SCENE_TRIGGER') < 0,
+    'PowerController does NOT list SCENE_TRIGGER (no nonsensical pair)');
+  check(cc.PowerController.indexOf('OTHER') >= 0 && cc.SceneController.indexOf('OTHER') >= 0,
+    'OTHER is shared by both (never force-flips)');
+});
+
+test('InfoOnlyAnalog couples both sensor arms to their categories', () => {
+  const cc = alexaInfoForType('InfoOnlyAnalog').capabilityCategories;
+  check(!!cc, 'declares capabilityCategories');
+  check(cc.TemperatureSensor.indexOf('TEMPERATURE_SENSOR') >= 0, 'Temp → TEMPERATURE_SENSOR');
+  check(cc.HumiditySensor.indexOf('HUMIDITY_SENSOR') >= 0, 'Humidity → HUMIDITY_SENSOR');
+  check(cc.TemperatureSensor.indexOf('HUMIDITY_SENSOR') < 0, 'Temp does NOT list HUMIDITY_SENSOR');
+  check(cc.TemperatureSensor.indexOf('OTHER') >= 0 && cc.HumiditySensor.indexOf('OTHER') >= 0,
+    'OTHER shared (never force-flips)');
+});
+
+test('InfoOnlyDigital couples sensor arms but leaves ModeController uncoupled', () => {
+  const cc = alexaInfoForType('InfoOnlyDigital').capabilityCategories;
+  check(!!cc, 'declares capabilityCategories');
+  check(cc.ContactSensor.indexOf('CONTACT_SENSOR') >= 0, 'Contact → CONTACT_SENSOR');
+  check(cc.MotionSensor.indexOf('MOTION_SENSOR') >= 0, 'Motion → MOTION_SENSOR');
+  // The custom-label ModeController arm is deliberately NOT in the map.
+  eq(cc.ModeController, undefined, 'ModeController arm is uncoupled');
+  // OTHER must be in BOTH mapped arms so selecting it (the ModeController-
+  // friendly category) never force-flips away from a sensor or ModeController.
+  check(cc.ContactSensor.indexOf('OTHER') >= 0 && cc.MotionSensor.indexOf('OTHER') >= 0,
+    'OTHER shared by both sensor arms (matches 2 → never force-flips)');
+});
+
 test('getControl resolves by uuid', () => {
   const c = newCache();
   c.parsed = c._parse(SAMPLE);

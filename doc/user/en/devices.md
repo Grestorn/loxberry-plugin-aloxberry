@@ -33,7 +33,7 @@ device in the *Devices* tab.
 | Loxone function block (Loxone Config / app) — *plugin type* | Default Alexa category | Capabilities | What you can say / what it does |
 |---|---|---|---|
 | **Switch** — `Switch` | Switch | Power | "Alexa, turn *name* on/off." |
-| **Stairwell Light Switch** / timed switch — `TimedSwitch` | Switch | Power | On/off (Loxone runs its own timer). |
+| **Stairwell Light Switch** / Comfort switch — `TimedSwitch` | Switch | Power **or** Scene | On/off. Two ways to use the Loxone timer: (a) keep **Power** and tick **Trigger timer / Toggle with timer** (see Settings below); or (b) make it a **Scene** — tick the **Scene** capability *or* choose a `SCENE_TRIGGER`/`ACTIVITY_TRIGGER` category and the picker switches the other to match — so each "Alexa, turn on *name*" simply fires the timer: stateless and re‑triggerable, like a button press. |
 | **Pushbutton** — `Pushbutton` | Scene | Scene | One‑shot trigger: "Alexa, turn on *name*" / use in Routines. |
 | **Dimmer** — `Dimmer` | Light | Power, Brightness | On/off, "set *name* to 40 %", "dim *name*". |
 | **Lighting Controller** — `LightControllerV2` / `LightController` | Light | Power, Mode (light scenes) | On/off, "set *name* to *scene*". |
@@ -112,6 +112,7 @@ These appear only for the types they apply to:
 | Setting | Applies to | Why you'd change it |
 |---|---|---|
 | **Reverse direction** | Blinds, windows, gates, sliders | If 0 % / 100 % run opposite to what Alexa expects (e.g. unusually wired blinds). |
+| **Trigger timer** / **Toggle with timer** | Timed switch | Makes "Alexa, turn on" fire the Loxone timer instead of switching on permanently. On a **stairwell‑light switch** the light goes on for the configured time and then off by itself ("Trigger timer"). On a **comfort switch** the same command turns it on with the timer when it's off, and off when it's already on ("Toggle with timer"). "Turn off" always switches off immediately. The timer length itself is set in Loxone Config. |
 | **Override + Hours** | Room controller | Send an Alexa temperature change as a **timed manual override** instead of permanently editing the Loxone schedule. Hours = how long it lasts (1–168). |
 | **Step** | Audio zones | How many percent "louder/quieter" moves the volume (1–50). |
 | **Invert logic** | Sensors | Swap detected/clear (open/closed) if your contact wiring is reversed. |

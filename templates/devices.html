@@ -312,6 +312,8 @@
     inParent:      '<TMPL_VAR NAME=DEVICES.IN_PARENT ESCAPE=JS>',
     settings:      '<TMPL_VAR NAME=DEVICES.SETTINGS ESCAPE=JS>',
     reverseAxis:   '<TMPL_VAR NAME=DEVICES.REVERSE_AXIS ESCAPE=JS>',
+    timedTriggerSls: '<TMPL_VAR NAME=DEVICES.TIMED_TRIGGER_SLS ESCAPE=JS>',
+    timedTriggerCsw: '<TMPL_VAR NAME=DEVICES.TIMED_TRIGGER_CSW ESCAPE=JS>',
     useOverride:   '<TMPL_VAR NAME=DEVICES.USE_OVERRIDE ESCAPE=JS>',
     overrideHours: '<TMPL_VAR NAME=DEVICES.OVERRIDE_HOURS ESCAPE=JS>',
     volumeStep:    '<TMPL_VAR NAME=DEVICES.VOLUME_STEP ESCAPE=JS>',
@@ -331,6 +333,8 @@
     capabilities:     '<TMPL_VAR NAME=DEVICES.TIP_CAPABILITIES ESCAPE=JS>',
     settings:         '<TMPL_VAR NAME=DEVICES.TIP_SETTINGS ESCAPE=JS>',
     reverseAxis:      '<TMPL_VAR NAME=DEVICES.TIP_REVERSE_AXIS ESCAPE=JS>',
+    timedTriggerSls:  '<TMPL_VAR NAME=DEVICES.TIP_TIMED_TRIGGER_SLS ESCAPE=JS>',
+    timedTriggerCsw:  '<TMPL_VAR NAME=DEVICES.TIP_TIMED_TRIGGER_CSW ESCAPE=JS>',
     useOverride:      '<TMPL_VAR NAME=DEVICES.TIP_USE_OVERRIDE ESCAPE=JS>',
     overrideHours:    '<TMPL_VAR NAME=DEVICES.TIP_OVERRIDE_HOURS ESCAPE=JS>',
     volumeStep:       '<TMPL_VAR NAME=DEVICES.TIP_VOLUME_STEP ESCAPE=JS>',
@@ -668,6 +672,15 @@
     var allowedCats = (ctrl && ctrl.defaults && Array.isArray(ctrl.defaults.allowedCategories))
       ? ctrl.defaults.allowedCategories.slice()
       : CATEGORIES.slice();
+    // When the type couples categories to the exclusive capability (e.g.
+    // TimedSwitch: Power↔switch categories, Scene↔scene categories), narrow
+    // the dropdown to the ACTIVE capability's set so the two stay consistent.
+    // The in-place sync helpers keep this current as the user toggles either.
+    var ccm = capCatMap(ctrl);
+    if (ccm) {
+      var actCap = activeExclusiveCap(d, ctrl);
+      if (actCap && Array.isArray(ccm[actCap])) allowedCats = ccm[actCap].slice();
+    }
     if (d.displayCategory && allowedCats.indexOf(d.displayCategory) < 0) {
       allowedCats.push(d.displayCategory);
     }
@@ -776,6 +789,24 @@
       });
       settingChildren.push(settingRow([rangeInv, ' ' + i18n.reverseAxis],
         'RangeController', axisOn, tip.reverseAxis));
+    }
+    // TimedSwitch "trigger the timer" opt-in. Gated by PowerController (the
+    // only cap a TimedSwitch has). The label + tooltip differ by Loxone mode:
+    // details.isStairwayLs distinguishes the Treppenlichtschalter (timed-on)
+    // from the Komfortschalter (toggle-with-timer). Both send the same `pulse`
+    // command; only the Loxone-side meaning — and therefore the wording —
+    // differs. Rendered only for TimedSwitch controls.
+    if (ctrl && ctrl.type === 'TimedSwitch') {
+      var pulseOn = capActive('PowerController');
+      var isSls = !!(ctrl.details && ctrl.details.isStairwayLs);
+      var pulseCb = el('input', {
+        type: 'checkbox', checked: boolWithTypeDefault('timedSwitchPulse'),
+        'data-timedpulse': '1', 'data-uuid': d.uuid,
+      });
+      settingChildren.push(settingRow(
+        [pulseCb, ' ' + (isSls ? i18n.timedTriggerSls : i18n.timedTriggerCsw)],
+        'PowerController', pulseOn,
+        isSls ? tip.timedTriggerSls : tip.timedTriggerCsw));
     }
     // Thermostat override checkbox + duration.
     if (typeCanHave('ThermostatController')) {
@@ -954,6 +985,9 @@
       // ThermostatController capability (the daemon ignores them then).
       thermostatUseOverride: !!(ctrl.defaults && ctrl.defaults.thermostatUseOverride),
       thermostatOverrideHours: (ctrl.defaults && ctrl.defaults.thermostatOverrideHours) || 12,
+      // TimedSwitch timed-trigger opt-in. Always seeds false (no type
+      // defaults it on); the daemon ignores it for non-TimedSwitch controls.
+      timedSwitchPulse: !!(ctrl.defaults && ctrl.defaults.timedSwitchPulse),
       // Volume step (Speaker AdjustVolume) — same idempotent-pre-seed pattern.
       audioVolumeStep: (ctrl.defaults && ctrl.defaults.audioVolumeStep) || 5,
       // Sensor polarity (Motion/Contact). Seed from the type default —
@@ -1060,6 +1094,90 @@
     refreshSettingsDisabled(uuid);
   }
 
+  // ---- capability <-> category coupling ------------------------------------
+  // Some control types (TimedSwitch today) declare `capabilityCategories`:
+  // a map from each exclusive-capability to the Alexa categories that belong
+  // with it. The picker keeps the two in lockstep so a user can't produce a
+  // nonsensical pair (e.g. SceneController on a SWITCH tile). All updates are
+  // in-place (no re-render) to preserve scroll position, matching the rest of
+  // the picker. Both helpers no-op for types without the map.
+
+  function capCatMap(ctrl) {
+    return (ctrl && ctrl.defaults && ctrl.defaults.capabilityCategories) || null;
+  }
+  // The member of the exclusive-capability group currently active on `d`.
+  function activeExclusiveCap(d, ctrl) {
+    var grp = ctrl && ctrl.defaults && ctrl.defaults.exclusiveCapabilities;
+    if (!grp) return null;
+    for (var i = 0; i < grp.length; i++) {
+      if (d.capabilities.indexOf(grp[i]) >= 0) return grp[i];
+    }
+    return null;
+  }
+  // Rebuild a card's category <select> options to `cats`, selecting `value`.
+  // Setting .value programmatically does NOT fire a 'change' event, so this
+  // can't loop back into the coupling handlers.
+  function rebuildCategoryOptions(uuid, cats, value) {
+    var card = document.querySelector('[data-card-uuid="' + uuid + '"]');
+    if (!card) return;
+    var sel = card.querySelector('select[data-field="displayCategory"]');
+    if (!sel) return;
+    var list = cats.slice();
+    if (value && list.indexOf(value) < 0) list.push(value);
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    list.forEach(function (cat) {
+      var opt = el('option', { value: cat, text: cat });
+      if (cat === value) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.value = value;
+  }
+  // After an exclusive-capability change: narrow the category dropdown to the
+  // new capability's set and snap the category if the current one no longer
+  // fits (OTHER stays, since it's in every set).
+  function syncCategoryToCapability(uuid) {
+    var d = findDevice(uuid); var ctrl = findControl(uuid);
+    var map = capCatMap(ctrl); if (!d || !map) return;
+    var cap = activeExclusiveCap(d, ctrl);
+    var cats;
+    if (cap && Array.isArray(map[cap])) {
+      // Coupled capability — narrow the dropdown to its category set.
+      cats = map[cap];
+    } else {
+      // Active capability isn't coupled (e.g. the custom-label ModeController
+      // arm), or nothing is active — widen back to the full allowed list so
+      // the uncoupled arm keeps full category freedom. Keep the current
+      // category if it's still valid (no surprise snap).
+      cats = (ctrl.defaults && Array.isArray(ctrl.defaults.allowedCategories))
+        ? ctrl.defaults.allowedCategories : null;
+      if (!cats) return;
+    }
+    var newCat = (cats.indexOf(d.displayCategory) >= 0) ? d.displayCategory : cats[0];
+    if (newCat !== d.displayCategory) updateField(uuid, 'displayCategory', newCat);
+    rebuildCategoryOptions(uuid, cats, newCat);
+  }
+  // After a category change: if the chosen category belongs to exactly one
+  // exclusive capability (i.e. not the shared OTHER), flip the capability to
+  // match. Updates the checkbox DOM in place and renarrows the dropdown.
+  function syncCapabilityToCategory(uuid, cat) {
+    var d = findDevice(uuid); var ctrl = findControl(uuid);
+    var map = capCatMap(ctrl); if (!d || !map) return;
+    var grp = (ctrl.defaults && ctrl.defaults.exclusiveCapabilities) || [];
+    var matches = grp.filter(function (c) {
+      return Array.isArray(map[c]) && map[c].indexOf(cat) >= 0;
+    });
+    if (matches.length !== 1) return;          // ambiguous (OTHER) → leave as-is
+    var target = matches[0];
+    if (d.capabilities.indexOf(target) >= 0) return;  // already active
+    // Check the target's own box (the browser only changed the <select>),
+    // then reuse toggleCapability to clear the exclusive sibling(s) + refresh.
+    var box = document.querySelector(
+      'input[data-cap="' + target + '"][data-uuid="' + uuid + '"]');
+    if (box) box.checked = true;
+    toggleCapability(uuid, target, true);
+    rebuildCategoryOptions(uuid, map[target], cat);
+  }
+
   // ---- event wiring --------------------------------------------------------
   // Delegated handlers — one listener per type, dispatch based on data-* attrs.
   document.body.addEventListener('click', function (e) {
@@ -1093,10 +1211,16 @@
     var axis = t.getAttribute && t.getAttribute('data-axis');
     if (uuid && cap) {
       toggleCapability(uuid, cap, t.checked);
+      // Keep the category in lockstep for types that couple the two.
+      syncCategoryToCapability(uuid);
       return;
     }
     if (uuid && axis) {
       updateField(uuid, 'rangeAxisInverted', t.checked);
+      return;
+    }
+    if (uuid && t.getAttribute && t.getAttribute('data-timedpulse')) {
+      updateField(uuid, 'timedSwitchPulse', t.checked);
       return;
     }
     var thermo = t.getAttribute && t.getAttribute('data-thermo');
@@ -1141,6 +1265,8 @@
     if (uuid && field) {
       var v = (t.type === 'checkbox') ? t.checked : t.value;
       updateField(uuid, field, v);
+      // Category change → flip the coupled capability for types that link them.
+      if (field === 'displayCategory') syncCapabilityToCategory(uuid, v);
     }
   });
 

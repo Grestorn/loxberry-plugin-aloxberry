@@ -1765,6 +1765,20 @@ class DirectiveRouter {
           const hours = endpoint.ventilationOverrideHours || 24;
           command = this._buildVentSetTimer({ hours, speed: 0, modeId: currentMode });
         }
+      } else if (ctrl?.type === 'TimedSwitch' && endpoint.timedSwitchPulse && targetOn) {
+        // TimedSwitch with the per-device "trigger the timer" option enabled.
+        // Plain TurnOn → `On` makes it permanently on (deactivationDelay=-1);
+        // the user instead wants the timed behaviour, which is the `pulse`
+        // command (Structure File V17 p.133). `pulse` is mode-dependent on
+        // the Loxone side and we deliberately don't try to second-guess it:
+        //   - isStairwayLs=true  (Treppenlichtschalter): pulse (re)starts the
+        //     on-timer — the timed-on the user asked for.
+        //   - isStairwayLs=false (Komfortschalter):      pulse toggles —
+        //     off→on+timer, on→off. The picker labels the checkbox
+        //     "Toggle with timer" for this mode so the behaviour is expected.
+        // TurnOff still falls through to the `Off` branch below (a direct,
+        // unambiguous off; deactivationDelay=0) for both modes.
+        command = 'pulse';
       } else {
         command = targetOn ? 'On' : 'Off';   // Switch / Light / LightControllerV2: capital
       }
