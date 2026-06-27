@@ -8,8 +8,9 @@ Loxone but only becomes voice-addressable through a small detour. This page
 collects the most useful tips and workarounds.
 
 > See also: [devices.md](devices.md) for the full Loxone-control → Alexa
-> category/capability table, and [audio.md](audio.md) for the background on
-> why Alexa hijacks music commands.
+> category/capability table, [audio.md](audio.md) for the background on
+> why Alexa hijacks music commands, and [presence.md](presence.md) for using
+> an Echo's own person/occupancy detection to drive a Loxone state.
 
 ---
 

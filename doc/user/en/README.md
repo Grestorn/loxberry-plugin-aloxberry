@@ -50,6 +50,7 @@ flowchart LR
 | Audio | Loxone Music Server zones: volume, mute, play/pause, source |
 | Scenes | Loxone push-buttons & sequences as Alexa Scenes / Routines |
 | Sensors | Presence, window/contact, temperature, humidity (read-only) |
+| Presence → Loxone | Use an Echo's own person/occupancy detection as a Routine trigger to drive a Loxone state — anonymously, or per person via Visual ID |
 | Safety controls | Master off switch, "pause while a Virtual Status is on" gate |
 
 ---
@@ -63,10 +64,11 @@ flowchart LR
 | 🔗 **Loxone ↔ Alexa device mapping** | [devices.md](devices.md) |
 | 💡 **Tips & how-tos** (light moods, audio favorites …) | [tips.md](tips.md) |
 | 🎵 **Audio players & music favorites** | [audio.md](audio.md) |
+| 🚶 **Presence & person detection → Loxone** | [presence.md](presence.md) |
 
 German versions: [Sicherheit](../de/security.md) ·
 [Einrichtung](../de/setup.md) · [Geräte-Zuordnung](../de/devices.md) ·
-[Tipps](../de/tips.md) · [Audio](../de/audio.md)
+[Tipps](../de/tips.md) · [Audio](../de/audio.md) · [Anwesenheit](../de/presence.md)
 
 > Looking for the technical/architecture documentation? See
 > [`doc/dev/`](../../dev/README.md) (English, for developers & self-hosters).

@@ -9,8 +9,10 @@ Alexa-Standardvokabular nur über einen Umweg ansprechbar ist. Diese Seite
 sammelt die wichtigsten Tipps und Workarounds.
 
 > Siehe auch: [devices.md](devices.md) für die vollständige Zuordnungstabelle
-> Loxone-Baustein → Alexa-Kategorie/Fähigkeiten, und [audio.md](audio.md) für
-> das Hintergrundwissen, warum Alexa Musikbefehle gerne kapert.
+> Loxone-Baustein → Alexa-Kategorie/Fähigkeiten, [audio.md](audio.md) für
+> das Hintergrundwissen, warum Alexa Musikbefehle gerne kapert, und
+> [presence.md](presence.md) dafür, wie die geräteeigene Personen-/
+> Belegungserkennung eines Echo einen Loxone-Zustand setzt.
 
 ---
 

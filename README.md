@@ -43,6 +43,10 @@ flowchart LR
 - **Safety:** opt‑in per device, end‑to‑end HMAC (blind bridge), no inbound
   exposure, Loxone credentials never leave the LoxBerry, prominent kill
   switches. See [`doc/user/en/security.md`](doc/user/en/security.md).
+- **Presence → Loxone:** turn an Echo's own person/occupancy detection
+  (anonymous, or per‑person via Visual ID) into a Loxone state via an Alexa
+  Routine — no plugin changes needed. See
+  [`doc/user/en/presence.md`](doc/user/en/presence.md).
 - **Self‑hosting:** run your own bridge and/or AWS backend — see
   [`doc/dev/`](doc/dev/README.md).
 
