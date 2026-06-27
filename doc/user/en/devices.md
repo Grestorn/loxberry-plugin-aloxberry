@@ -59,6 +59,33 @@ device in the *Devices* tab.
 > default in the picker (you can show it via the "Hide Alexa‑incompatible
 > types" filter, but it cannot be exposed).
 
+### Lighting Controllers expose each channel individually — plus a "Master"
+
+A Loxone **Lighting Controller** (`LightControllerV2` / `LightController`) is
+not a single device in the *Devices* tab. Loxone publishes the controller
+**and each of its light channels** (the individual circuits/outputs) as separate
+controls, and the plugin lists every one of them as its own pickable device:
+
+- **The controller itself** — exposed with **Power + Mode**, so you control its
+  **light moods/scenes** ("Dinner", "TV" …) by voice (see
+  [tips.md → Activating light moods](tips.md#1-activating-light-moods-light-scenes-by-voice)).
+- **One entry per light channel** — each circuit appears as its own `Switch` (or
+  `Dimmer`/`ColorPickerV2`, depending on the channel), so you can address a
+  single light of the controller individually.
+- **A "Master" channel** — Loxone also generates an all‑channels control,
+  typically named **"Master‑Schalter"** (German) / "Master". Switching it on or
+  off turns **every channel of that controller** on or off **together**. It is
+  an ordinary `Switch` like the others, which is why it shows up when you filter
+  for *Master* in the picker.
+
+These channel and Master entries **inherit the controller's room and category**,
+so they sit grouped with their Lighting Controller in the picker. **You choose
+which to expose** — nothing is added to Alexa automatically. Add the *controller*
+for moods, individual *channels* for per‑light control, and/or the *Master* for
+"turn the whole controller on/off". If a "Master‑Schalter" appeared in Alexa
+unexpectedly, that subcontrol was added in the *Devices* tab — remove or disable
+it there and re‑run **"Alexa, discover devices"**.
+
 ---
 
 ## What the Alexa **category** changes — and why it matters

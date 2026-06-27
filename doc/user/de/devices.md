@@ -60,6 +60,35 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 > und ist im Picker standardmäßig ausgeblendet (über den Filter „Nicht von
 > Alexa unterstützte Typen ausblenden" sichtbar, aber nicht freigebbar).
 
+### Lichtsteuerungen geben jeden Lichtkanal einzeln frei — plus einen „Master"
+
+Eine Loxone-**Lichtsteuerung** (`LightControllerV2` / `LightController`) ist im
+Tab *Geräte* nicht ein einzelnes Gerät. Loxone veröffentlicht die Steuerung
+**und jeden ihrer Lichtkanäle** (die einzelnen Lichtkreise/Ausgänge) als
+separate Controls, und das Plugin listet jedes davon als eigenes auswählbares
+Gerät:
+
+- **Die Steuerung selbst** — freigegeben mit **Power + Modus**, sodass du ihre
+  **Lichtstimmungen/-szenen** („Essen", „TV" …) per Sprache steuerst (siehe
+  [tips.md → Lichtstimmungen aktivieren](tips.md#1-lichtstimmungen-lichtszenen-per-sprache-aktivieren)).
+- **Ein Eintrag pro Lichtkanal** — jeder Lichtkreis erscheint als eigener
+  `Switch` (bzw. `Dimmer`/`ColorPickerV2`, je nach Kanal), sodass du ein
+  einzelnes Licht der Steuerung gezielt ansprechen kannst.
+- **Ein „Master"-Kanal** — Loxone erzeugt zusätzlich ein Control für alle
+  Kanäle, meist **„Master-Schalter"** genannt. Schaltest du es ein oder aus,
+  gehen **alle Kanäle dieser Steuerung gemeinsam** an oder aus. Es ist ein
+  gewöhnlicher `Switch` wie die anderen — deshalb taucht es auf, wenn du im
+  Picker nach *Master* filterst.
+
+Diese Kanal- und Master-Einträge **erben Raum und Kategorie der Steuerung** und
+stehen im Picker daher bei ihrer Lichtsteuerung gruppiert. **Du entscheidest,
+was du freigibst** — nichts wird automatisch an Alexa übergeben. Füge die
+*Steuerung* für Stimmungen hinzu, einzelne *Kanäle* für die Steuerung einzelner
+Lichter und/oder den *Master* für „die ganze Steuerung ein/aus". Falls in Alexa
+unerwartet ein „Master-Schalter" auftauchte, wurde dieser Subcontrol im Tab
+*Geräte* hinzugefügt — entferne oder deaktiviere ihn dort und führe erneut
+**„Alexa, suche Geräte"** aus.
+
 ---
 
 ## Was die Alexa-**Kategorie** ändert — und warum das wichtig ist
