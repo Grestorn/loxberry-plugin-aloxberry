@@ -39,9 +39,9 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 | **Dimmer** — `Dimmer` | Licht | Power, Helligkeit | Ein/Aus, „stelle *Name* auf 40 %", „dimme *Name*". |
 | **Lichtsteuerung** — `LightControllerV2` / `LightController` | Licht | Power, Modus (Lichtszenen) | Ein/Aus, „stelle *Name* auf *Szene*". |
 | **Lichtsteuerung / RGB – Farbausgang** — `ColorPickerV2` | Licht | Helligkeit, Farbe, Farbtemperatur | „mache *Name* blau", „warmweiß", Helligkeit 0 = aus. |
-| **Automatikbeschattung** — Jalousien, Rollläden, Markisen — `Jalousie` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50", „öffne/schließe *Name*". |
-| **Fenster** (automatisch) — `Window` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50". |
-| **Tor** (Garage/Tor) — `Gate` | Garagentor | Bereich (Position) | Auf eine Position öffnen/schließen. |
+| **Automatikbeschattung** — Jalousien, Rollläden, Markisen — `Jalousie` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50", „öffne/schließe/fahre *Name* hoch/runter". |
+| **Fenster** (automatisch) — `Window` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50", „öffne/schließe *Name*". |
+| **Tor** (Garage/Tor) — `Gate` | Garagentor | Bereich (Position) | „öffne/schließe *Name*" oder auf eine Position fahren. |
 | **Virtueller Eingang – Schieberegler** — `Slider` | Sonstiges | Bereich (Wert) | „stelle *Name* auf *N*" innerhalb min/max. |
 | **Auswahlschalter +/−** (Wertgeber) — `ValueSelector` | Sonstiges | Bereich (Wert) | Einen Zahlenwert hoch/runter stufen. |
 | **Radiotasten** (8× / 16×) — `Radio` | Sonstiges | Modus (benannte Ausgänge) | „stelle *Name* auf *Option*" (einer aktiv). |
@@ -59,6 +59,29 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 > Alles, was nicht in dieser Liste steht, wird **von Alexa nicht unterstützt**
 > und ist im Picker standardmäßig ausgeblendet (über den Filter „Nicht von
 > Alexa unterstützte Typen ausblenden" sichtbar, aber nicht freigebbar).
+
+### „Öffnen" und „Schließen" zu Jalousien, Fenstern und Toren sagen
+
+Jalousien (`Jalousie`), Fenster (`Window`) und Tore (`Gate`) verstehen neben der
+Prozentangabe auch die einfachen Verben:
+
+- **„Alexa, öffne / schließe *Name*"** — fährt ganz auf (100 %) bzw. ganz zu
+  (0 %).
+- **„Alexa, fahre *Name* hoch / runter"** — dasselbe wie öffnen / schließen
+  (praktisch bei Jalousien).
+- **„Alexa, stelle *Name* auf 50"** — jede Position dazwischen.
+
+Auch „mach *Name* auf/zu" funktioniert. Alexa übersetzt diese Verben
+automatisch in die passenden Wörter deiner Sprache — du konfigurierst nichts.
+
+Zwei Dinge solltest du wissen:
+
+- Wenn **Auf und Zu vertauscht sind** (Öffnen schließt die Jalousie und
+  umgekehrt), hake bei diesem Gerät unter Einstellungen **Richtung umkehren** an
+  — siehe Tabelle unten. Damit dreht sich auch die Prozentachse passend mit.
+- Die Verben erscheinen erst **nach einer erneuten Suche**: Sage nach dem
+  Plugin-Update einmal **„Alexa, suche Geräte"**, sonst reagiert eine bereits
+  bekannte Jalousie weiterhin nur auf Prozentangaben.
 
 ### Lichtsteuerungen geben jeden Lichtkanal einzeln frei — plus einen „Master"
 

@@ -38,9 +38,9 @@ device in the *Devices* tab.
 | **Dimmer** — `Dimmer` | Light | Power, Brightness | On/off, "set *name* to 40 %", "dim *name*". |
 | **Lighting Controller** — `LightControllerV2` / `LightController` | Light | Power, Mode (light scenes) | On/off, "set *name* to *scene*". |
 | **Lighting / RGB Controller — colour output** — `ColorPickerV2` | Light | Brightness, Color, Color temperature | "make *name* blue", "warm white", brightness 0 = off. |
-| **Automatic Shading** — blinds, shutters, awnings — `Jalousie` | Interior blind | Range (position) | "set *name* to 50", "open/close *name*". |
-| **Window** (automatic window) — `Window` | Interior blind | Range (position) | "set *name* to 50". |
-| **Garage / Gate** — `Gate` | Garage door | Range (position) | Open/close to a position. |
+| **Automatic Shading** — blinds, shutters, awnings — `Jalousie` | Interior blind | Range (position) | "set *name* to 50", "open/close/raise/lower *name*". |
+| **Window** (automatic window) — `Window` | Interior blind | Range (position) | "set *name* to 50", "open/close *name*". |
+| **Garage / Gate** — `Gate` | Garage door | Range (position) | "open/close *name*", or set to a position. |
 | **Virtual input – slider** — `Slider` | Other | Range (value) | "set *name* to *N*" within its own min/max. |
 | **Selection Switch +/−** (value selector) — `ValueSelector` | Other | Range (value) | Step a numeric value up/down. |
 | **Radio Buttons** (8× / 16×) — `Radio` | Other | Mode (named outputs) | "set *name* to *option*" (one active at a time). |
@@ -58,6 +58,29 @@ device in the *Devices* tab.
 > Anything not in this list is **not supported by Alexa** and is hidden by
 > default in the picker (you can show it via the "Hide Alexa‑incompatible
 > types" filter, but it cannot be exposed).
+
+### Saying "open" and "close" to blinds, windows and gates
+
+Blinds (`Jalousie`), windows (`Window`) and gates (`Gate`) understand the plain
+verbs as well as a percentage:
+
+- **"Alexa, open / close *name*"** — runs fully open (100 %) or fully closed
+  (0 %).
+- **"Alexa, raise / lower *name*"** — same as open / close (handy for blinds).
+- **"Alexa, set *name* to 50"** — any position in between.
+
+Alexa translates these verbs into the right words for your language
+automatically — in German "öffnen / schließen / auf / zu", in French
+"ouvre / ferme", and so on; you don't configure anything.
+
+Two things to know:
+
+- If **open and close come out swapped** (open closes the blind and vice
+  versa), tick **Reverse direction** in that device's Settings — see the table
+  below. This also flips the percentage axis to match.
+- The verbs only appear **after a re‑discovery**: say
+  **"Alexa, discover devices"** once after upgrading the plugin, otherwise an
+  already‑known blind keeps responding to percentages only.
 
 ### Lighting Controllers expose each channel individually — plus a "Master"
 

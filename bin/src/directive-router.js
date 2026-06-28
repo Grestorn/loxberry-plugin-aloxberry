@@ -972,7 +972,7 @@ class DirectiveRouter {
         });
       } else {
         // Blind-shaped (Jalousie / Window / Gate).
-        caps.push({
+        const blindCap = {
           type: 'AlexaInterface',
           interface: 'Alexa.RangeController',
           instance: RANGE_INSTANCE_BLINDS,
@@ -1035,7 +1035,59 @@ class DirectiveRouter {
               },
             ],
           },
-        });
+        };
+        // Action/state semantics for blinds. Without this block the bare
+        // verbs "open"/"close"/"raise"/"lower" — and their localized forms
+        // that Alexa expands from the Alexa.Actions.* assets (de-DE
+        // "öffnen"/"schließen"/"auf"/"zu", fr-FR "ouvre"/"ferme", …) —
+        // never reach us: the legacy (non-LLM) Alexa NLU has no way to turn
+        // a bare verb into a SetRangeValue directive, so only "set <name> to
+        // N percent" and the preset phrasings work. Alexa+ infers the verbs
+        // without semantics; classic Alexa and Matter-bridged blinds rely on
+        // exactly this mapping, which is why a prior Matter setup "just
+        // worked" and ours didn't.
+        //
+        // Values are in Alexa's NORMALIZED coordinate space — the same space
+        // as the presets above — where 100 = fully open for EVERY blind,
+        // irrespective of rangeAxisInverted. The daemon applies axis
+        // inversion later, inside the SetRangeValue dispatch (loxoneTarget =
+        // mirrorInRange(target)), so these MUST NOT be pre-mirrored here or
+        // the inversion would apply twice (an inverted Jalousie would treat
+        // "open" as "close"). That is also why the presets are hardcoded
+        // 100/0 rather than routed through the helpers.
+        //
+        // Applies to all three blind-shaped types, Gate included: Gate is
+        // DOOR-category but its dispatcher snaps SetRangeValue to the
+        // open/close/PartiallyOpen verbs, so Open→100 / Close→0 land on the
+        // right Loxone command. (Raise/Lower alias Open/Close, harmless for a
+        // gate.)
+        blindCap.semantics = {
+          actionMappings: [
+            {
+              '@type': 'ActionsToDirective',
+              actions: ['Alexa.Actions.Close', 'Alexa.Actions.Lower'],
+              directive: { name: 'SetRangeValue', payload: { rangeValue: 0 } },
+            },
+            {
+              '@type': 'ActionsToDirective',
+              actions: ['Alexa.Actions.Open', 'Alexa.Actions.Raise'],
+              directive: { name: 'SetRangeValue', payload: { rangeValue: 100 } },
+            },
+          ],
+          stateMappings: [
+            {
+              '@type': 'StatesToValue',
+              states: ['Alexa.States.Closed'],
+              value: 0,
+            },
+            {
+              '@type': 'StatesToRange',
+              states: ['Alexa.States.Open'],
+              range: { minimumValue: 1, maximumValue: 100 },
+            },
+          ],
+        };
+        caps.push(blindCap);
       }
     }
     // ModeController for LightController/V2 — modes are the Loxone moods

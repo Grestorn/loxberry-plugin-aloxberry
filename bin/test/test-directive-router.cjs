@@ -1242,6 +1242,25 @@ function newRouter(endpoints, opts) {
     check(closeAssets.includes('Alexa.Value.Close'), 'Close asset binds to rangeValue=0');
     check(!ep?.capabilities?.some((c) => c.interface === 'Alexa.PowerController'),
       'Jalousie does NOT advertise PowerController');
+
+    // Action/state semantics let legacy (non-LLM) Alexa map the bare verbs
+    // "open"/"close"/"raise"/"lower" (and their localized forms) onto
+    // SetRangeValue. Values are Alexa-space constants (100=open) — the axis
+    // inversion is applied downstream in dispatch, NOT here.
+    const actions = range?.semantics?.actionMappings || [];
+    const openMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Open'));
+    const closeMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Close'));
+    eq(openMap?.directive?.name, 'SetRangeValue', 'Open maps to SetRangeValue');
+    eq(openMap?.directive?.payload?.rangeValue, 100, 'Open → rangeValue 100 (Alexa-space, not mirrored)');
+    check((openMap?.actions || []).includes('Alexa.Actions.Raise'), 'Raise aliases Open');
+    eq(closeMap?.directive?.payload?.rangeValue, 0, 'Close → rangeValue 0');
+    check((closeMap?.actions || []).includes('Alexa.Actions.Lower'), 'Lower aliases Close');
+    const stateMaps = range?.semantics?.stateMappings || [];
+    const closedState = stateMaps.find((s) => (s.states || []).includes('Alexa.States.Closed'));
+    const openState = stateMaps.find((s) => (s.states || []).includes('Alexa.States.Open'));
+    eq(closedState?.value, 0, 'Closed state ↔ value 0');
+    eq(openState?.range?.minimumValue, 1, 'Open state ↔ range starts at 1');
+    eq(openState?.range?.maximumValue, 100, 'Open state ↔ range ends at 100');
   });
 
   await test('Jalousie — axis-inverted default: SetRangeValue 70 → ManualPosition/30', async () => {
@@ -1401,6 +1420,22 @@ function newRouter(endpoints, opts) {
   });
 
   // --- Gate (snap-to-presets) ----------------------------------------------
+
+  await test('Gate Discovery carries open/close action semantics', async () => {
+    const env = gateEnv();
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'mg0' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const ep = resp?.event?.payload?.endpoints?.[0];
+    const range = ep?.capabilities?.find((c) => c.interface === 'Alexa.RangeController');
+    const actions = range?.semantics?.actionMappings || [];
+    const openMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Open'));
+    const closeMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Close'));
+    eq(openMap?.directive?.payload?.rangeValue, 100, 'Gate Open → rangeValue 100 (→ open verb)');
+    eq(closeMap?.directive?.payload?.rangeValue, 0, 'Gate Close → rangeValue 0 (→ close verb)');
+  });
 
   await test('Gate — SetRangeValue 100 → open verb', async () => {
     const env = gateEnv();
