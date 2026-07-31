@@ -56,6 +56,49 @@ const { endpointIdFor } = require('./devices-config');
 const LIGHTCTRL_OFF_MOOD_ID = 778;
 const MODE_INSTANCE = 'Aloxberry.LightMood';
 
+// ---------------------------------------------------------------------------
+// Proactive-report rate control
+// ---------------------------------------------------------------------------
+//
+// Two mechanisms, both comparing the value Alexa actually RECEIVES rather
+// than the raw Loxone float. That distinction is the whole point: state-cache
+// emits `change` whenever the raw value differs, but the mapped Alexa value is
+// quantised (humidity through Math.round, temperature through
+// TEMPERATURE_STEP_C below). Two raw readings that collapse to the same Alexa
+// value used to produce two byte-identical ChangeReports, the second carrying
+// no information at all. A free-running analog sensor does that continuously.
+//
+//   1. Duplicate suppression - always on, and lossless. If the emitted value
+//      equals what we last sent for that (endpoint, property), drop it.
+//      Alexa already holds exactly that value.
+//
+//   2. Minimum interval - SENSOR_MIN_INTERVAL_MS, analog sensors only. Puts a
+//      floor on how often one (endpoint, property) may be reported.
+//      Crucially this DEFERS rather than drops: the newest value is held and
+//      flushed when the window closes, so the last change of a quiet period
+//      always reaches Alexa. Dropping instead would leave Alexa displaying a
+//      stale reading indefinitely whenever a sensor went quiet right after a
+//      suppressed update. Set the env var to 0 to disable the floor entirely.
+const SENSOR_MIN_INTERVAL_MS = (() => {
+  const raw = Number.parseInt(process.env.ALOXBERRY_SENSOR_MIN_INTERVAL_MS, 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
+})();
+
+// Alexa renders at most one decimal of a temperature reading, so anything
+// finer is sensor noise whose only effect is to defeat the duplicate check.
+const TEMPERATURE_STEP_C = 0.1;
+
+// `namespace|name` pairs eligible for the minimum-interval floor. Deliberately
+// limited to free-running physical sensors. Everything else - power, contact,
+// motion, locks, playback, brightness, blind position, thermostat setpoints -
+// is either user-initiated or routine-critical and is always reported
+// immediately: a deferred MotionSensor breaks Alexa routines, and a deferred
+// powerState makes a wall switch look broken.
+const THROTTLED_PROPERTIES = new Set([
+  'Alexa.TemperatureSensor|temperature',
+  'Alexa.HumiditySensor|relativeHumidity',
+]);
+
 // Map Alexa namespace → device-config capability string. Used in the
 // per-capability filter so a device-config that disabled e.g.
 // ColorController doesn't get ChangeReports for it.
@@ -97,8 +140,15 @@ class StateReporter {
     // a once-a-minute summary preserves the only thing that log was for:
     // confirming the WS event stream is still alive after a reload. A window
     // reading `total=0` right after a reload is the hang smoking gun.
-    this._cacheStats = { total: 0, matched: 0 };
+    this._cacheStats = { total: 0, matched: 0, duplicate: 0, deferred: 0 };
     this._cacheStatsTimer = null;
+
+    // Rate-control state, both keyed by
+    // `${endpointId}|${namespace}|${instance}|${name}`:
+    //   _lastSent — { sig, at } of the last value dispatched for that key
+    //   _pending  — value held back by the interval floor, plus its timer
+    this._lastSent = new Map();
+    this._pending  = new Map();
   }
 
   start() {
@@ -110,12 +160,14 @@ class StateReporter {
     // emitted, including zero windows: a sudden `total=0` is exactly the
     // post-reload-silence signal we need, and one line/minute is negligible.
     this._cacheStatsTimer = setInterval(() => {
-      const { total, matched } = this._cacheStats;
+      const { total, matched, duplicate, deferred } = this._cacheStats;
       this._cacheStats.total = 0;
       this._cacheStats.matched = 0;
+      this._cacheStats.duplicate = 0;
+      this._cacheStats.deferred = 0;
       this.log.debug(
-        { total, matched, windowSec: 60 },
-        'state-reporter: cache-event heartbeat (events seen / matched an exposed device)',
+        { total, matched, duplicate, deferred, pending: this._pending.size, windowSec: 60 },
+        'state-reporter: cache-event heartbeat (seen / matched / suppressed as duplicate / deferred by interval)',
       );
     }, 60_000);
     this._cacheStatsTimer.unref();
@@ -129,6 +181,12 @@ class StateReporter {
       clearInterval(this._cacheStatsTimer);
       this._cacheStatsTimer = null;
     }
+    // Drop anything still waiting on its interval window. These are sensor
+    // readings only (see THROTTLED_PROPERTIES); losing one on shutdown is
+    // harmless because the post-restart resubscribe re-pushes every state.
+    for (const entry of this._pending.values()) clearTimeout(entry.timer);
+    this._pending.clear();
+    this._lastSent.clear();
   }
 
   // Compute the FULL CURRENT STATE of an endpoint as an Alexa property
@@ -386,6 +444,45 @@ class StateReporter {
     });
     if (filtered.length === 0) return;
 
+    // Rate control. See the constants at the top of the file: everything here
+    // compares the value Alexa actually receives, not the raw Loxone float.
+    const now = Date.now();
+    const ready = [];
+    for (const rawProp of filtered) {
+      const p    = this._quantise(rawProp);
+      const key  = this._propKey(device, p);
+      const sig  = this._valueSignature(p);
+      const last = this._lastSent.get(key);
+
+      // 1. Duplicate: Alexa already holds exactly this value.
+      if (last && last.sig === sig) {
+        this._cacheStats.duplicate++;
+        continue;
+      }
+
+      // 2. Interval floor (analog sensors only). Hold the value rather than
+      //    discarding it, so the window closing still delivers it.
+      const throttled = SENSOR_MIN_INTERVAL_MS > 0
+        && THROTTLED_PROPERTIES.has(`${p.namespace}|${p.name}`);
+      if (throttled && last && (now - last.at) < SENSOR_MIN_INTERVAL_MS) {
+        this._defer(key, device, control, p, last.at + SENSOR_MIN_INTERVAL_MS - now);
+        this._cacheStats.deferred++;
+        continue;
+      }
+
+      ready.push(p);
+      this._lastSent.set(key, { sig, at: now });
+      // Going out now supersedes anything queued for the same key.
+      this._cancelPending(key);
+    }
+
+    if (ready.length === 0) return;
+    this._emit(device, control, ready);
+  }
+
+  // Build the ChangeReport envelope for `properties` and dispatch it. Shared
+  // by the live path above and the deferred flush below.
+  _emit(device, control, properties) {
     // Build the full current state so Alexa receives complete context. The
     // changed property goes in change.properties; the other current
     // properties (snapshot) go in context.properties. Without this,
@@ -394,7 +491,7 @@ class StateReporter {
     // generic tile.
     const fullState = this._currentPropertiesForDevice(device, control);
     const changedKeys = new Set(
-      filtered.map((p) => `${p.namespace}|${p.instance || ''}|${p.name}`)
+      properties.map((p) => `${p.namespace}|${p.instance || ''}|${p.name}`)
     );
     const contextProperties = fullState.filter(
       (p) => !changedKeys.has(`${p.namespace}|${p.instance || ''}|${p.name}`)
@@ -402,10 +499,91 @@ class StateReporter {
 
     const changeReport = this._buildChangeReport({
       device,
-      properties: filtered,
+      properties,
       contextProperties,
     });
     this._dispatch(changeReport);
+  }
+
+  // Stable identity for one reportable property of one endpoint.
+  _propKey(device, p) {
+    return `${endpointIdFor(device.uuid)}|${p.namespace}|${p.instance || ''}|${p.name}`;
+  }
+
+  // Compare on the emitted value alone. timeOfSample changes on every event
+  // and would defeat the duplicate check entirely if it were included.
+  _valueSignature(p) {
+    return JSON.stringify(p.value);
+  }
+
+  // Quantise to the precision Alexa actually renders, so two raw Loxone floats
+  // meaning the same reading compare equal. Humidity is already integer-rounded
+  // at its emission sites; temperature was being forwarded at full float
+  // precision, which is what made every sensor sample look like a change.
+  _quantise(p) {
+    if (p.namespace === 'Alexa.TemperatureSensor'
+        && p.name === 'temperature'
+        && p.value && Number.isFinite(p.value.value)) {
+      const stepped = Math.round(p.value.value / TEMPERATURE_STEP_C) * TEMPERATURE_STEP_C;
+      // Math.round(21.25 / 0.1) * 0.1 === 21.200000000000003. Left untrimmed
+      // that binary-float residue differs between samples and the signature
+      // comparison above would see a change that isn't one.
+      return { ...p, value: { ...p.value, value: Number(stepped.toFixed(1)) } };
+    }
+    return p;
+  }
+
+  // Hold `p` until its window closes. Newest value wins: a later change to the
+  // same property overwrites the held one without extending the deadline, so
+  // what eventually ships is the current reading and the floor stays a floor.
+  _defer(key, device, control, p, delayMs) {
+    const existing = this._pending.get(key);
+    if (existing) {
+      existing.device   = device;
+      existing.control  = control;
+      existing.property = p;
+      return;
+    }
+    const entry = { device, control, property: p, timer: null };
+    entry.timer = setTimeout(() => this._flush(key), Math.max(0, delayMs));
+    // unref'd for the same reason as the heartbeat above: a queued sensor
+    // reading must never keep a shutting-down daemon alive.
+    entry.timer.unref();
+    this._pending.set(key, entry);
+  }
+
+  _cancelPending(key) {
+    const entry = this._pending.get(key);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this._pending.delete(key);
+  }
+
+  // Window closed — ship whatever the newest held value is.
+  _flush(key) {
+    const entry = this._pending.get(key);
+    this._pending.delete(key);
+    if (!entry) return;
+
+    // devices.json may have disabled or removed the device while we held the
+    // value. Re-check rather than reporting on an endpoint Alexa no longer
+    // knows about (Discovery would have retracted it).
+    const device = this.devicesConfig.list().find((d) => d.uuid === entry.device.uuid);
+    if (!device || !device.enabled) return;
+
+    // The held value was current when captured; only its timestamp is stale.
+    const property = { ...entry.property, timeOfSample: new Date().toISOString() };
+    this._lastSent.set(key, { sig: this._valueSignature(property), at: Date.now() });
+    try {
+      this._emit(device, entry.control, [property]);
+    } catch (err) {
+      // A failed flush must not take the daemon down — the next sensor
+      // transition re-reports the property anyway.
+      this.log.warn(
+        { err: err && err.message, key },
+        'state-reporter: deferred flush failed',
+      );
+    }
   }
 
   // Translate (Loxone control type + state name + value/text) → Alexa
