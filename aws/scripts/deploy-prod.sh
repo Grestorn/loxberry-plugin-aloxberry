@@ -2,9 +2,13 @@
 #
 # Full production deploy for the Aloxberry AWS backend.
 #
-# Sibling of deploy-prod.ps1 — same behaviour, bash flavour. Use whichever
-# one matches your shell; the only practical difference is PowerShell uses
-# .NET's RandomNumberGenerator while this one shells out to `openssl rand`.
+# Sibling of deploy-prod.ps1 — same behaviour, bash flavour. The only
+# practical difference is PowerShell uses .NET's RandomNumberGenerator while
+# this one shells out to `openssl rand`.
+#
+# Linux, macOS and WSL only. Git Bash / MSYS2 / Cygwin mangle the /-prefixed
+# SSM parameter names and are refused outright below — on Windows, run
+# deploy-prod.ps1 instead.
 #
 # What it does, in order:
 #   1. Verifies AWS CLI is logged in to the expected profile/region.
@@ -51,7 +55,10 @@ while [[ $# -gt 0 ]]; do
         --region)             REGION="$2";  shift 2 ;;
         --log-level)          LOG_LEVEL="$2"; shift 2 ;;
         -h|--help)
-            sed -n '2,32p' "$0"
+            # Everything from line 2 to the first non-comment line. A fixed
+            # end line (was '2,32p') silently truncates the usage text as
+            # soon as the header grows.
+            awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"
             exit 0
             ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
@@ -64,6 +71,34 @@ case "$LOG_LEVEL" in
     DEBUG|INFO|WARN|ERROR) ;;
     *) echo "Invalid --log-level '$LOG_LEVEL'. Must be DEBUG, INFO, WARN, or ERROR." >&2
        exit 2 ;;
+esac
+
+# Refuse to run under Git Bash / MSYS2 / Cygwin. Those environments rewrite
+# any argument that looks like a Unix path into a Windows path before handing
+# it to a native .exe, so `aws ssm get-parameter --name /loxberry-alexa/...`
+# arrives as `--name D:/Git/loxberry-alexa/...`. The lookup then reports the
+# parameter as MISSING and this script proceeds to "create" a secret that
+# already exists. For the bridge secret that is actively destructive: the
+# footer prints a freshly generated BRIDGE_DISPATCH_SECRET and tells you to
+# paste it into bridge/.env, which desynchronises the bridge from the Lambda
+# and drops every paired user.
+#
+# There is no safe workaround worth supporting here - deploy-prod.ps1 is the
+# Windows path and does exactly the same work. WSL sets OSTYPE=linux-gnu and
+# does NOT mangle paths, so it is deliberately not matched below.
+case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*)
+        echo "Refusing to run under '$OSTYPE' (Git Bash / MSYS2 / Cygwin)." >&2
+        echo >&2
+        echo "This shell rewrites /-prefixed arguments into Windows paths, which makes" >&2
+        echo "the SSM parameter lookups silently report existing secrets as missing." >&2
+        echo >&2
+        echo "On Windows use the PowerShell sibling instead:" >&2
+        echo "    .\\aws\\scripts\\deploy-prod.ps1" >&2
+        echo >&2
+        echo "(WSL, Linux and macOS are fine and run this script normally.)" >&2
+        exit 1
+        ;;
 esac
 
 JWT_PARAM='/loxberry-alexa/jwt-secret'
