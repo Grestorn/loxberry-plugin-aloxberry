@@ -131,6 +131,20 @@ Parameters:
       hundreds of devices). Set to DEBUG when investigating; redeploy with
       INFO when done.
 
+  Tracing:
+    Type: String
+    Default: PassThrough
+    AllowedValues: [PassThrough, Active]
+    Description: >
+      X-Ray tracing mode for both Lambda functions. Active records a trace for
+      every sampled invocation and is billed per trace recorded (and, if
+      CloudWatch Transaction Search is enabled account-wide, per GB of spans
+      ingested on top) — that ran up a real bill, so the default is now
+      PassThrough. Neither Alexa's Smart Home service nor the OAuth browser
+      flow sends a sampled X-Amzn-Trace-Id header, so PassThrough records
+      nothing at all. Deploy with Tracing=Active only while investigating a
+      latency problem, then redeploy with PassThrough.
+
 # -----------------------------------------------------------------------------
 # Conditions
 # -----------------------------------------------------------------------------
@@ -151,7 +165,7 @@ Globals:
     Architectures: [arm64]
     MemorySize: 256
     Timeout: 10
-    Tracing: Active
+    Tracing: !Ref Tracing
     LoggingConfig:
       LogFormat: JSON
       ApplicationLogLevel: !Ref LogLevel
