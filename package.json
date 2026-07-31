@@ -1,6 +1,6 @@
 {
   "name": "loxberry-plugin-aloxberry",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Aloxberry — LoxBerry Alexa Smart Home plugin (release tooling only — not a runtime dependency of the plugin)",
   "private": true,
   "scripts": {

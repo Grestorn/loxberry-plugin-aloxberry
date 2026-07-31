@@ -1,6 +1,6 @@
 {
   "name": "aloxberry-aws",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Convenience scripts for the AWS backend. Each Lambda function under lambda/ has its own package.json — esbuild is installed there because SAM's lambda-builders esbuild workflow only resolves it relative to the function's own node_modules.",
   "license": "Apache-2.0",

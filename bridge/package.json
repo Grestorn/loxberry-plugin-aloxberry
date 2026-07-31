@@ -1,6 +1,6 @@
 {
   "name": "@aloxberry/bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Stateless dispatch bridge for the Aloxberry plugin. Holds persistent WSS connections from each Loxberry plugin and routes HMAC-signed directives from the AWS Lambda. Bridge sees opaque payloads — end-to-end auth is between Lambda and plugin.",
   "private": true,
   "main": "src/index.js",
