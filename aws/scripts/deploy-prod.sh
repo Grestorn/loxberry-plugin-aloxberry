@@ -186,12 +186,51 @@ fi
 
 echo
 echo "==> sam deploy (LogLevel=$LOG_LEVEL)"
-echo "    (BridgeUrl + BridgeDispatchSecretParam come from samconfig.toml)"
-# --parameter-overrides MERGES with samconfig.toml's parameter_overrides
-# (it doesn't replace), so BridgeUrl etc. remain in effect. Only LogLevel
-# is overridden here.
+
+# IMPORTANT: SAM CLI does NOT merge a command-line --parameter-overrides with
+# the parameter_overrides in samconfig.toml. The CLI value REPLACES the file
+# value wholesale, and any parameter not restated falls back to the deployed
+# stack's PREVIOUS value. Passing only "LogLevel=..." here silently dropped
+# Stage / AlexaSkillId / BridgeUrl / BridgeDispatchSecretParam, so editing
+# AlexaSkillId in samconfig.toml produced "no changes to deploy" (it kept the
+# old skill id). Read the file's parameter_overrides and append LogLevel so
+# the full set is always sent. Mirrors deploy-prod.ps1.
+SAMCONFIG="${AWS_DIR}/samconfig.toml"
+CFG_PARAMS="$(sed -n 's/^[[:space:]]*parameter_overrides[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' \
+    "$SAMCONFIG" 2>/dev/null | head -n 1)"
+
+if [[ -z "$CFG_PARAMS" ]]; then
+    echo "Could not read parameter_overrides from $SAMCONFIG." >&2
+    echo "Refusing to deploy: a partial parameter set would silently reuse the" >&2
+    echo "stack's previous values and mask whatever you just changed." >&2
+    exit 1
+fi
+
+MERGED_PARAMS="$(echo "$CFG_PARAMS LogLevel=$LOG_LEVEL" | tr -s ' ')"
+
+# Guard rail: neither of these may ever go out empty.
+#   BridgeUrl=''     -> both Lambdas refuse to forward directives, so every
+#                       paired user loses Alexa control until the next deploy.
+#   AlexaSkillId=''  -> the Lambda permission reopens to ANY Smart Home skill.
+# CloudFormation would accept both without complaint, so check here.
+param_value() {
+    echo " $MERGED_PARAMS" \
+        | grep -oE "[[:space:]]$1=[^[:space:]]*" \
+        | tail -n 1 | cut -d= -f2-
+}
+
+for required in BridgeUrl AlexaSkillId; do
+    if [[ -z "$(param_value "$required")" ]]; then
+        echo "Refusing to deploy: $required resolves to an empty value." >&2
+        echo "  merged parameter-overrides: $MERGED_PARAMS" >&2
+        echo "Fix parameter_overrides in $SAMCONFIG and re-run." >&2
+        exit 1
+    fi
+done
+
+echo "    parameter-overrides: $MERGED_PARAMS"
 sam deploy --profile "$PROFILE" --region "$REGION" \
-    --parameter-overrides "LogLevel=$LOG_LEVEL"
+    --parameter-overrides "$MERGED_PARAMS"
 
 echo
 echo "==> Stack outputs"

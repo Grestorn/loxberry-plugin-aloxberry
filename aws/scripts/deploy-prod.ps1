@@ -3,11 +3,11 @@
 # What it does, in order:
 #   1. Verifies AWS CLI is logged in to the expected profile/region.
 #   2. Ensures both SSM SecureString secrets exist:
-#        /loxberry-alexa/jwt-secret              (Lambda → user-facing JWT signing)
-#        /loxberry-alexa/bridge-dispatch-secret  (Lambda ↔ bridge shared secret)
+#        /loxberry-alexa/jwt-secret              (Lambda -> user-facing JWT signing)
+#        /loxberry-alexa/bridge-dispatch-secret  (Lambda <-> bridge shared secret)
 #      If a secret is missing, generates 32 random bytes and writes it.
 #   3. Runs `sam build --build-in-source`.
-#   4. Runs `sam deploy` against the samconfig.toml in aws/ — which already
+#   4. Runs `sam deploy` against the samconfig.toml in aws/ - which already
 #      includes BridgeUrl + BridgeDispatchSecretParam in parameter_overrides.
 #   5. Prints the stack outputs.
 #
@@ -32,7 +32,7 @@ param(
     [string] $Profile = 'loxberry-alexa',
     [string] $Region  = 'eu-west-1',
     # Lambda log level. Defaults to INFO. The @aloxberry/shared logger filters
-    # anything below this level — CloudWatch ingestion scales with how many
+    # anything below this level - CloudWatch ingestion scales with how many
     # per-request lines survive, so leaving this at INFO is what keeps the
     # production-scale cost bounded. Use DEBUG when investigating.
     [ValidateSet('DEBUG', 'INFO', 'WARN', 'ERROR')]
@@ -191,9 +191,22 @@ try {
         if ($m) { $cfgParams = $m.Matches[0].Groups[1].Value }
     }
     if (-not $cfgParams) {
-        Write-Warning "Could not read parameter_overrides from $samconfig - deploying with LogLevel only. AlexaSkillId/BridgeUrl will fall back to the stack's previous values."
+        throw "Could not read parameter_overrides from $samconfig. Refusing to deploy: a partial parameter set would silently reuse the stack's previous values and mask whatever you just changed."
     }
     $mergedParams = (($cfgParams + ' ' + "LogLevel=$LogLevel")).Trim()
+
+    # Guard rail: neither of these may ever go out empty.
+    #   BridgeUrl=''    -> both Lambdas refuse to forward directives, so every
+    #                      paired user loses Alexa control until the next deploy.
+    #   AlexaSkillId='' -> the Lambda permission reopens to ANY Smart Home skill.
+    # CloudFormation would accept both without complaint, so check here.
+    foreach ($required in @('BridgeUrl', 'AlexaSkillId')) {
+        $hit = [regex]::Match(" $mergedParams", "\s$required=(\S*)")
+        if ((-not $hit.Success) -or (-not $hit.Groups[1].Value)) {
+            throw "Refusing to deploy: $required resolves to an empty value. Merged parameter-overrides: $mergedParams. Fix parameter_overrides in $samconfig and re-run."
+        }
+    }
+
     Write-Host "    parameter-overrides: $mergedParams"
 
     $deployArgs = @(
