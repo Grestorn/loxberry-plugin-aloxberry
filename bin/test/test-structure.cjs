@@ -265,5 +265,22 @@ test('IRoomControllerV2 without humidityActual hides HumiditySensor opt-in', () 
     'HumiditySensor NOT offered when humidityActual absent');
 });
 
+// hasStructure() is the guard that lets callers treat "getControl() === null"
+// as proof of deletion rather than as "we never got a structure". Getting it
+// wrong would unpublish every device whenever the Miniserver is unreachable.
+test('hasStructure distinguishes "no structure" from "control deleted"', () => {
+  const c = newCache();
+  check(c.hasStructure() === false, 'false before anything is parsed');
+  check(c.getControl('ctrl-switch') === null, 'getControl is null before parse');
+
+  c.parsed = c._parse(SAMPLE);
+  check(c.hasStructure() === true, 'true once a structure is parsed');
+  check(!!c.getControl('ctrl-switch'), 'a live control resolves');
+  check(c.getControl('ctrl-deleted-in-loxone') === null, 'a deleted control does not');
+
+  c.parsed = c._parse({ rooms: {}, cats: {}, controls: {} });
+  check(c.hasStructure() === false, 'false for a structure with zero controls');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

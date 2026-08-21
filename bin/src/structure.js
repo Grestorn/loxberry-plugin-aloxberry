@@ -14,6 +14,7 @@
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const EventEmitter = require('node:events');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -480,8 +481,16 @@ const V1_IMPLEMENTED_TYPES = new Set([
   'InfoOnlyDigital', 'InfoOnlyAnalog',
 ]);
 
-class StructureCache {
+// Emits:
+//   'refreshed' — after a successful fetch+parse from the Miniserver, i.e.
+//                 whenever the set of existing controls may have changed.
+//                 index.js listens so the Alexa endpoint list can be
+//                 re-derived (a control deleted in Loxone Config must stop
+//                 being advertised at Discovery without waiting for a
+//                 devices.json save or a daemon restart).
+class StructureCache extends EventEmitter {
   constructor({ dataDir, log }) {
+    super();
     this.cachePath = path.join(dataDir, 'loxapp3.json');
     this.tmpPath = `${this.cachePath}.tmp`;
     this.log = log.child({ component: 'structure' });
@@ -539,6 +548,11 @@ class StructureCache {
       { controls: this.parsed.controls.length, rooms: this.parsed.rooms.length, cats: this.parsed.cats.length },
       'LoxAPP3 fetched and parsed',
     );
+    // Listeners re-derive anything keyed on "which controls exist" — see the
+    // class comment. Emitted only on a REAL refresh (never on the disk-cache
+    // fallback above), because the disk cache is by definition the structure
+    // we already acted on.
+    this.emit('refreshed', { controls: this.parsed.controls.length });
     return { ok: true, stale: false, fromCache: false };
   }
 
@@ -725,6 +739,22 @@ class StructureCache {
   getControl(uuid) {
     if (!this.parsed) return null;
     return this.parsed.controls.find((c) => c.uuid === uuid) || null;
+  }
+
+  // "Do we hold a structure good enough to answer *negative* questions with?"
+  //
+  // getControl() returning null is ambiguous on its own: it means either "that
+  // control was deleted in Loxone Config" or "we never got a structure at
+  // all". Callers that act on absence (orphan detection in devices-config)
+  // must distinguish the two, or a Miniserver that is merely unreachable
+  // would look like a Miniserver with every control deleted.
+  //
+  // A structure loaded from the disk cache counts: it is the last state Loxone
+  // actually reported, so a control missing from it really was removed. Only
+  // "no structure at all" (cold first install, unreadable cache) is untrusted.
+  // The empty-controls guard covers a parse that produced nothing usable.
+  hasStructure() {
+    return !!(this.parsed && this.parsed.controls && this.parsed.controls.length > 0);
   }
 }
 

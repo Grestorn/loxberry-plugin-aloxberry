@@ -242,9 +242,9 @@ async function main() {
   // the Miniserver being reachable).
   const structureCache = new StructureCache({ dataDir: config.dataDir, log });
   await structureCache.loadFromDisk();
-  structureCache.refresh({ msNo: 1 }).catch((err) => {
-    log.warn({ err: err.message }, 'initial structure refresh failed — will retry next boot');
-  });
+  // The live refresh is kicked off further down, AFTER the 'refreshed'
+  // listener is wired — otherwise a fast Miniserver could complete the fetch
+  // before anyone is subscribed and the endpoint rebuild would be skipped.
 
   // --- Devices config (devices.json, hot-reloaded) ------------------------
   // structureCache is passed in so the removed-category migration (e.g.
@@ -316,6 +316,30 @@ async function main() {
       log.error({ err: err && err.stack || String(err) },
         'devices change handler threw — daemon kept alive, reload may be partially applied');
     }
+  });
+
+  // The endpoint list also depends on the STRUCTURE, not just devices.json:
+  // toEndpoints() drops devices whose Loxone control no longer exists (see
+  // the ORPHAN notes in devices-config.js). Without this listener, deleting a
+  // control in Loxone Config and pressing "Refresh from Miniserver" would
+  // leave the dead endpoint advertised until the next devices.json save or
+  // daemon restart — long enough for Alexa to resurrect it once more.
+  structureCache.on('refreshed', () => {
+    try {
+      const next = devicesConfig.toEndpoints();
+      log.debug({ endpointCount: next.length }, 'structure refreshed — endpoints re-derived');
+      directiveRouter.setEndpoints(next);
+    } catch (err) {
+      log.error({ err: err && err.stack || String(err) },
+        'structure-refresh endpoint rebuild threw — daemon kept alive, endpoints unchanged');
+    }
+  });
+
+  // Now that the listener exists, fetch the live structure. Not awaited —
+  // first boot would otherwise block on the Miniserver being reachable; the
+  // disk cache loaded above already backs /catalogue in the meantime.
+  structureCache.refresh({ msNo: 1 }).catch((err) => {
+    log.warn({ err: err.message }, 'initial structure refresh failed — will retry next boot');
   });
 
   // --- Bridge client ------------------------------------------------------

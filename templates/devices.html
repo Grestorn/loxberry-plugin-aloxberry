@@ -128,6 +128,13 @@
     background: #fee; color: #882020; padding: 0.4rem 0.6rem; border-radius: 4px;
     font-size: 0.85rem; margin-bottom: 0.4rem;
   }
+  /* Badge in the card head, so an orphan is identifiable while scrolling
+     past a long list without reading the warning paragraph. */
+  .orphan-badge { background: #c33; color: #fff; border-radius: 10px;
+                  padding: 0.05rem 0.5rem; font-size: 0.72rem; font-weight: 700;
+                  letter-spacing: 0.02em; white-space: nowrap; }
+  /* Page-level summary, shown only when at least one orphan exists. */
+  .orphan-banner { border-color: #c33; background: #fdf6f6; }
 
   .save-bar { position: sticky; bottom: 0; background: #fff;
               border-top: 1px solid #ddd; padding: 0.7rem 1rem; margin-top: 1rem;
@@ -247,6 +254,16 @@
   </div>
 </div>
 
+<!-- Zombie summary. Populated by renderOrphanBanner(); hidden while the
+     count is 0. Sits directly above the lists because its call to action
+     ("remove them") is performed down there. The body text is static (it
+     explains the mechanism); only the title carries the count. -->
+<div id="orphan-banner" class="ax-card orphan-banner" style="display:none">
+  <strong id="orphan-banner-title"></strong>
+  <p style="margin: 0.4rem 0 0.6rem;"><TMPL_VAR NAME=DEVICES.ORPHAN_BANNER_BODY></p>
+  <button type="button" id="orphan-remove-all" class="ax-btn ax-btn-danger" data-role="none"><TMPL_VAR NAME=DEVICES.ORPHAN_REMOVE_ALL></button>
+</div>
+
 <div class="picker">
   <div class="ax-card">
     <h2><TMPL_VAR NAME=DEVICES.AVAILABLE></h2>
@@ -308,6 +325,8 @@
     capabilities:  '<TMPL_VAR NAME=DEVICES.CAPABILITIES ESCAPE=JS>',
     phaseTag:      '<TMPL_VAR NAME=DEVICES.PHASE3 ESCAPE=JS>',
     orphan:        '<TMPL_VAR NAME=DEVICES.ORPHAN ESCAPE=JS>',
+    orphanBadge:   '<TMPL_VAR NAME=DEVICES.ORPHAN_BADGE ESCAPE=JS>',
+    orphanTitle:   '<TMPL_VAR NAME=DEVICES.ORPHAN_BANNER_TITLE ESCAPE=JS>',
     incompatible:  '<TMPL_VAR NAME=DEVICES.INCOMPATIBLE ESCAPE=JS>',
     inParent:      '<TMPL_VAR NAME=DEVICES.IN_PARENT ESCAPE=JS>',
     settings:      '<TMPL_VAR NAME=DEVICES.SETTINGS ESCAPE=JS>',
@@ -466,6 +485,22 @@
     }
     return null;
   }
+  // "Is this exposed device pointing at a control Loxone no longer has?"
+  //
+  // Mirrors the daemon's hasStructure() guard (devices-config.js): a missing
+  // control only PROVES deletion if we actually hold a catalogue. An empty
+  // controls array means we learned nothing about the Miniserver, and
+  // flagging every device as missing in that state would be a lie the user
+  // would act on. The daemon applies the same rule when deciding which
+  // endpoints to advertise, so the badge below and Alexa's view agree.
+  var structureKnown = controls.length > 0;
+  function isOrphan(d) {
+    return structureKnown && !findControl(d.uuid);
+  }
+  function orphanList() {
+    return devices.filter(isOrphan);
+  }
+
   function findDevice(uuid) {
     for (var i = 0; i < devices.length; i++) {
       if (devices[i].uuid === uuid) return devices[i];
@@ -624,11 +659,14 @@
   // ---- render: exposed devices ---------------------------------------------
   function renderExposedCard(d) {
     var ctrl = findControl(d.uuid);
+    var orphan = isOrphan(d);
     var className = 'exposed-card' +
       (d.enabled ? '' : ' disabled') +
-      (ctrl ? '' : ' orphan');
+      (orphan ? ' orphan' : '');
 
-    // Head: enabled toggle + remove button.
+    // Head: enabled toggle + remove button. An orphan additionally carries a
+    // badge between the two, so it reads as "missing" at a glance instead of
+    // only through the warning paragraph underneath.
     var enabledCb = el('input', {
       type: 'checkbox', checked: !!d.enabled,
       'data-field': 'enabled', 'data-uuid': d.uuid,
@@ -640,11 +678,15 @@
       'data-remove': d.uuid,
       text: i18n.remove,
     });
-    var head = el('div', { className: 'head' }, [enabledLbl, removeBtn]);
+    var head = el('div', { className: 'head' }, [
+      enabledLbl,
+      orphan ? el('span', { className: 'orphan-badge', text: i18n.orphanBadge, title: i18n.orphan }) : null,
+      removeBtn,
+    ]);
 
     var children = [head];
 
-    if (!ctrl) {
+    if (orphan) {
       children.push(el('div', { className: 'orphan-warning', text: i18n.orphan }));
     }
 
@@ -919,6 +961,13 @@
     // metadata, since the device row doesn't carry that itself.
     var matches = devices.filter(function (d) {
       var ctrl = findControl(d.uuid); // null if the control was removed in Loxone
+      // Orphans are NEVER filtered out. Every filter below joins on the
+      // matching Loxone control for its metadata, and an orphan has none —
+      // so a room/type/category filter would silently swallow exactly the
+      // rows the user most needs to see, making a device that is still
+      // registered with Alexa look as if the plugin had forgotten it.
+      // Deliberately placed before every other test.
+      if (isOrphan(d)) return true;
       if (filters.hideIncompatible && ctrl && !ctrl.alexaCompatible) return false;
       if (filters.room && (!ctrl || ctrl.roomUuid !== filters.room)) return false;
       if (filters.type && (!ctrl || ctrl.type    !== filters.type)) return false;
@@ -940,6 +989,11 @@
       }
       return true;
     });
+    // Orphans first: they need action, and the list can be long enough that
+    // a card in its natural position never gets scrolled to. Stable within
+    // each group (Array.prototype.sort is stable in every browser we target),
+    // so the rest of the order is untouched.
+    matches.sort(function (a, b) { return (isOrphan(b) ? 1 : 0) - (isOrphan(a) ? 1 : 0); });
     matches.forEach(function (d) { list.appendChild(renderExposedCard(d)); });
     // The counter shows visible-vs-total so a user with active filters
     // can tell at a glance whether the filter is hiding their device.
@@ -950,9 +1004,25 @@
     $('exposed-empty').style.display = devices.length === 0 ? 'block' : 'none';
   }
 
+  // Page-level orphan summary. Hidden at count 0; otherwise states the count
+  // and offers a bulk removal. The explanatory body lives in the template
+  // (static text) — only the title is built here.
+  function renderOrphanBanner() {
+    var banner = $('orphan-banner');
+    if (!banner) return;
+    var count = orphanList().length;
+    if (count === 0) {
+      banner.style.display = 'none';
+      return;
+    }
+    $('orphan-banner-title').textContent = i18n.orphanTitle.replace('{count}', String(count));
+    banner.style.display = '';
+  }
+
   function renderAll() {
     renderCandidates();
     renderExposed();
+    renderOrphanBanner();
   }
 
   // ---- add / remove / update ----------------------------------------------
@@ -1014,6 +1084,18 @@
 
   function removeDevice(uuid) {
     devices = devices.filter(function (d) { return d.uuid !== uuid; });
+    setDirty(true);
+    renderAll();
+  }
+
+  // Bulk-remove every device whose Loxone control is gone. Like any other
+  // edit this only stages the change — nothing leaves the browser until the
+  // user presses Save, which is why no confirmation dialog is warranted
+  // (and why a stray click is undone by simply reloading the page).
+  function removeAllOrphans() {
+    var doomed = orphanList();
+    if (doomed.length === 0) return;
+    devices = devices.filter(function (d) { return !isOrphan(d); });
     setDirty(true);
     renderAll();
   }
@@ -1293,6 +1375,7 @@
   $('hide-incompatible').addEventListener('change', function (e) {
     filters.hideIncompatible = e.target.checked; persistFilters(); renderAll();
   });
+  $('orphan-remove-all').addEventListener('click', removeAllOrphans);
 
   // ---- gatekeepers ---------------------------------------------------------
   // Two switches at the top of the page:

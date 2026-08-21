@@ -42,6 +42,23 @@
 // jdev/sps/io/<uuid>). The friendlyName is the exact string the daemon
 // hands to Alexa as the device's friendly name — typically pre-filled by
 // the picker as "<room> <control name>" but freely editable.
+//
+// ORPHANS ("zombies")
+// -------------------
+// Deleting a control in Loxone Config does NOT touch devices.json — nothing
+// on the Miniserver knows this plugin exists. The row survives, pointing at
+// a UUID that no longer resolves. Such a row is an *orphan*, and it is
+// deliberately KEPT on disk rather than auto-pruned: the user picked that
+// device, so only the user removes it (and a hand-repair in Loxone Config
+// can make it valid again).
+//
+// What an orphan must not do is stay advertised to Alexa. Alexa never drops
+// an endpoint just because a Discover.Response stopped listing it — but it
+// *does* re-add anything a Discover.Response does list. So an orphan still
+// present in the endpoint list makes a device the user deleted in the Alexa
+// app reappear on the next discovery, forever, while being unable to answer
+// a single directive. toEndpoints() therefore filters orphans out, and the
+// picker UI lists them unconditionally so the user can see and remove them.
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -115,6 +132,9 @@ class DevicesConfig extends EventEmitter {
     // the load — see _migrateRemovedCategory.
     this.structureCache = structureCache;
     this.devices = [];                                    // sanitized list
+    // Memo for _logOrphanChange — the last orphan set we logged, so the
+    // warning fires on change instead of on every rebuild.
+    this._lastOrphanKey = null;
     this.globals = { ...DEFAULT_GLOBALS,
                      vacationGate: { ...DEFAULT_GLOBALS.vacationGate } };
     this.lastLoadAt = null;
@@ -383,12 +403,29 @@ class DevicesConfig extends EventEmitter {
     return JSON.parse(JSON.stringify(this.globals));
   }
 
+  // Devices whose Loxone control no longer exists — see the ORPHAN section
+  // in the file header. Returns [] whenever the structure cache can't answer
+  // negative questions (no structure at all), so a Miniserver we simply
+  // haven't reached yet never gets mistaken for a Miniserver with every
+  // control deleted.
+  listOrphans() {
+    if (!this.structureCache?.hasStructure?.()) return [];
+    return this.devices.filter((d) => !this.structureCache.getControl(d.uuid));
+  }
+
   // Translate the sanitized devices.json into the endpoint shape that
   // DirectiveRouter consumes. Only enabled devices appear. friendlyName
   // is used as-is — the picker writes the room-prefixed name directly.
+  //
+  // Orphans are skipped: they can't serve a directive, and advertising them
+  // is what resurrects endpoints the user deleted in the Alexa app. The skip
+  // is logged (once per set change) because it is behaviour the user did not
+  // ask for and may be looking for an explanation of.
   toEndpoints() {
+    const orphans = new Set(this.listOrphans().map((d) => d.uuid));
+    this._logOrphanChange(orphans);
     return this.devices
-      .filter((d) => d.enabled && d.friendlyName)
+      .filter((d) => d.enabled && d.friendlyName && !orphans.has(d.uuid))
       .map((d) => ({
         endpointId: endpointIdFor(d.uuid),
         uuid:       d.uuid,
@@ -421,6 +458,24 @@ class DevicesConfig extends EventEmitter {
         modeLabelActive:   clampLabel(d.modeLabelActive),
         modeLabelInactive: clampLabel(d.modeLabelInactive),
       }));
+  }
+
+  // Log orphan skips at most once per distinct set. toEndpoints() runs on
+  // every devices.json save AND every structure refresh, so an unconditional
+  // log line would repeat the same warning indefinitely.
+  _logOrphanChange(orphanUuids) {
+    const key = [...orphanUuids].sort().join(',');
+    if (key === this._lastOrphanKey) return;
+    this._lastOrphanKey = key;
+    if (orphanUuids.size === 0) return;
+    const names = this.devices
+      .filter((d) => orphanUuids.has(d.uuid))
+      .map((d) => d.friendlyName || d.uuid);
+    this.log.warn(
+      { count: orphanUuids.size, uuids: [...orphanUuids], names },
+      'device(s) point at Loxone controls that no longer exist — not advertised to Alexa; '
+      + 'remove them on the Devices page (and in the Alexa app)',
+    );
   }
 }
 
