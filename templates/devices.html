@@ -716,15 +716,17 @@
     var allowedCats = (ctrl && ctrl.defaults && Array.isArray(ctrl.defaults.allowedCategories))
       ? ctrl.defaults.allowedCategories.slice()
       : CATEGORIES.slice();
-    // When the type couples categories to the exclusive capability (e.g.
-    // TimedSwitch: Power↔switch categories, Scene↔scene categories), narrow
-    // the dropdown to the ACTIVE capability's set so the two stay consistent.
-    // The in-place sync helpers keep this current as the user toggles either.
-    var ccm = capCatMap(ctrl);
-    if (ccm) {
-      var actCap = activeExclusiveCap(d, ctrl);
-      if (actCap && Array.isArray(ccm[actCap])) allowedCats = ccm[actCap].slice();
-    }
+    // NOTE: for types that couple categories to an exclusive capability
+    // (TimedSwitch, Gate, the sensor types) the dropdown deliberately offers
+    // the type's FULL allowedCategories, not just the active capability's
+    // subset. Narrowing to the active arm looks tidier but makes the other arm
+    // unreachable from here: a Gate starts on RangeController, so GARAGE_DOOR
+    // would never be offered and the only way to reach the voice-code garage
+    // door would be ticking a checkbox labelled "ModeController" — a term that
+    // means nothing to the person choosing. Picking a category that belongs to
+    // another arm is handled by syncCapabilityToCategory, which flips the
+    // capability to match, so consistency is preserved by correction rather
+    // than by omission.
     if (d.displayCategory && allowedCats.indexOf(d.displayCategory) < 0) {
       allowedCats.push(d.displayCategory);
     }
@@ -1201,6 +1203,14 @@
   function capCatMap(ctrl) {
     return (ctrl && ctrl.defaults && ctrl.defaults.capabilityCategories) || null;
   }
+  // Every category this control type allows, across all arms — what the
+  // dropdown shows. Distinct from the per-arm lists in capabilityCategories,
+  // which decide which VALUE is correct rather than which options are visible.
+  function allCatsFor(ctrl) {
+    return (ctrl && ctrl.defaults && Array.isArray(ctrl.defaults.allowedCategories))
+      ? ctrl.defaults.allowedCategories.slice()
+      : CATEGORIES.slice();
+  }
   // The member of the exclusive-capability group currently active on `d`.
   function activeExclusiveCap(d, ctrl) {
     var grp = ctrl && ctrl.defaults && ctrl.defaults.exclusiveCapabilities;
@@ -1250,7 +1260,9 @@
     }
     var newCat = (cats.indexOf(d.displayCategory) >= 0) ? d.displayCategory : cats[0];
     if (newCat !== d.displayCategory) updateField(uuid, 'displayCategory', newCat);
-    rebuildCategoryOptions(uuid, cats, newCat);
+    // `cats` chose the value; the options stay the full list (see the note in
+    // renderExposedCard) so the other arm is still reachable afterwards.
+    rebuildCategoryOptions(uuid, allCatsFor(ctrl), newCat);
   }
   // After a category change: if the chosen category belongs to exactly one
   // exclusive capability (i.e. not the shared OTHER), flip the capability to
@@ -1271,7 +1283,7 @@
       'input[data-cap="' + target + '"][data-uuid="' + uuid + '"]');
     if (box) box.checked = true;
     toggleCapability(uuid, target, true);
-    rebuildCategoryOptions(uuid, map[target], cat);
+    rebuildCategoryOptions(uuid, allCatsFor(ctrl), cat);
   }
 
   // ---- event wiring --------------------------------------------------------
