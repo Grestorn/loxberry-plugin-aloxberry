@@ -7,11 +7,30 @@
  *
  *    npm run release:patch | release:minor | release:major     (final)
  *    npm run pre:patch     | pre:minor     | pre:major          (prerelease)
+ *    npm run release:promote                                    (rc -> final)
  *
  * Pass `-- --force` (e.g. `npm run release:major -- --force`) to release every
  * component even when nothing changed since the last tag. Use this to cut a
  * milestone (e.g. the first official 1.0.0) off a changelog-only commit, where
  * the normal change-detection would otherwise report "nothing to do".
+ *
+ * Promoting a prerelease (`--promote`)
+ * -----------------------------------
+ * `npm run release:promote` publishes an existing prerelease as the final
+ * release AT THE SAME VERSION -- no bump, no changelog regeneration. It exists
+ * because the normal path cannot do this: a prerelease already wrote the plain
+ * version (e.g. 1.4.0) into package.json/plugin.cfg and tagged `1.4.0-rc`, so
+ * a follow-up `release:patch` finds nothing changed since that tag, and with
+ * `--force` would bump to 1.4.1 rather than publishing 1.4.0.
+ *
+ * What it does: tags the COMMIT THE RC POINTS AT as `X.Y.Z` (that is the code
+ * that was actually tested -- if HEAD has moved on you are told exactly which
+ * commits are being left out, and must confirm), points release.cfg at
+ * `archive/X.Y.Z.zip`, commits and pushes.
+ *
+ * prerelease.cfg is deliberately left alone: LoxBerry compares both channels
+ * and offers whichever version is higher, so a prerelease.cfg left behind the
+ * release is harmless and prerelease testers simply follow the final build.
  *
  * What it does
  * ------------
@@ -132,6 +151,11 @@ const gitOut = (...args) => {
   }
 };
 
+// Does this exact tag exist locally? `git tag --list <name>` echoes the name
+// back when it does and prints nothing when it does not (unlike rev-parse,
+// which would also resolve branches and abbreviated hashes).
+const tagExists = (name) => gitOut('tag', '--list', name) === name;
+
 const isGitClean = () => gitOut('status', '--porcelain') === '';
 const gitStatus = () => git('status');
 const getLastTag = () => gitOut('describe', '--tags', '--abbrev=0');
@@ -166,6 +190,13 @@ const updatePluginConfig = async (version) => {
   const plugin = await readIniFile(pluginCfg);
   plugin.PLUGIN.VERSION = version;
   await writeIniFile(pluginCfg, plugin);
+};
+
+const readCfgVersion = async (file) => {
+  const full = path.join(ROOT, file);
+  if (!fs.existsSync(full)) return null;
+  const cfg = await readIniFile(full);
+  return (cfg.AUTOUPDATE && cfg.AUTOUPDATE.VERSION) || null;
 };
 
 const updateReleaseCfg = async (version, url, isPrerelease) => {
@@ -245,8 +276,89 @@ const ARGS = process.argv.slice(2);
 const LEVEL = ARGS[0]; // major | minor | patch
 const IS_PRERELEASE = ARGS[1] === 'true';
 const FORCE = ARGS.includes('--force') || ARGS.includes('-f');
+const PROMOTE = ARGS.includes('--promote');
+
+// Publish the existing prerelease as the final release, at the same version.
+// Bumps nothing and regenerates nothing -- the version, plugin.cfg and the
+// CHANGELOG were all written when the prerelease was cut; the only thing that
+// was withheld is release.cfg, which is what stable clients read.
+const promote = async () => {
+  if (!isGitClean()) {
+    gitStatus();
+    console.log('\nWorking tree is not clean -- commit or stash your changes first.\n');
+    return;
+  }
+
+  // The prerelease wrote the plain version here (npm version major|minor|patch
+  // is used for prereleases too -- the -rc suffix only ever lives in the tag
+  // and the archive URL), so package.json already holds the version we are
+  // about to make final.
+  const version = readPkgVersion('.');
+  const rcTag = `${version}-rc`;
+
+  if (!tagExists(rcTag)) {
+    console.log(`\nNo prerelease to promote: tag ${rcTag} does not exist.`);
+    console.log('Cut one first with `npm run pre:patch|pre:minor|pre:major`.\n');
+    return;
+  }
+  if (tagExists(version)) {
+    console.log(`\nTag ${version} already exists -- ${version} has been released already.\n`);
+    return;
+  }
+  const releasedVersion = await readCfgVersion('release.cfg');
+  if (releasedVersion === version) {
+    console.log(`\nrelease.cfg is already at ${version}. Nothing to do.\n`);
+    return;
+  }
+
+  // Tag the commit the RC points at, not HEAD: that is the code people
+  // actually tested. Anything committed since is NOT part of this release,
+  // which is worth saying out loud rather than quietly shipping it.
+  const rcCommit = gitOut('rev-list', '-n', '1', rcTag);
+  const head = gitOut('rev-parse', 'HEAD');
+
+  console.log(`\nPromoting ${rcTag} -> ${version}`);
+  console.log(`  release.cfg: ${releasedVersion || '(unset)'} -> ${version}`);
+  console.log(`  tag ${version} -> ${rcCommit.slice(0, 9)} (the commit ${rcTag} points at)`);
+
+  if (rcCommit !== head) {
+    const extra = gitOut('log', '--oneline', `${rcTag}..HEAD`);
+    const count = extra ? extra.split('\n').length : 0;
+    console.log(`\n  WARNING: HEAD is ${count} commit(s) ahead of ${rcTag}.`);
+    console.log('  These will NOT be in the released archive:');
+    extra.split('\n').forEach((l) => console.log(`    ${l}`));
+    console.log('\n  To ship them instead, cut a new prerelease and promote that.');
+    if (!(await question('Release the older RC commit anyway?'))) {
+      console.log('Ok, stopping.');
+      return;
+    }
+  }
+
+  // prerelease.cfg is intentionally untouched -- see the header note.
+  await updateReleaseCfg(version, getGithubUrl(), false);
+  addIfExists('release.cfg');
+
+  gitStatus();
+  if (!(await question(`Commit, tag ${version} and push?`))) {
+    console.log('Resetting all changes from this run ...');
+    try { git('restore', '--staged', 'release.cfg'); } catch (e) {}
+    try { git('restore', 'release.cfg'); } catch (e) {}
+    process.exit(1);
+  }
+
+  const headline = `chore(release): promote v${version} to final`;
+  console.log(`Commit: ${headline}`);
+  git('commit', '-m', headline);
+  console.log(`Tag: ${version} (at ${rcCommit.slice(0, 9)})`);
+  git('tag', version, rcCommit);
+  git('push', '--set-upstream', 'origin', 'main');
+  git('push', 'origin', '--tags');
+
+  console.log(`\nPromoted: ${version} is now the current release.`);
+};
 
 const main = async () => {
+  if (PROMOTE) return promote();
   if (!['major', 'minor', 'patch'].includes(LEVEL)) {
     console.error(`Unknown bump level "${LEVEL}". Use major | minor | patch.`);
     process.exit(1);
