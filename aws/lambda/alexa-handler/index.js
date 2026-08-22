@@ -97,6 +97,29 @@ const SUPPORTED_NAMESPACES = new Set([
 ]);
 
 // -----------------------------------------------------------------------------
+// Usage classification
+// -----------------------------------------------------------------------------
+//
+// Splits inbound directives into the buckets an operator actually wants on a
+// usage graph. Outbound ChangeReports never reach this function at all — they
+// leave through oauth-handler /event — so everything classified here is
+// genuinely Alexa → us.
+//
+//   control   — the user changed something (voice command, or a control in
+//               the Alexa app). This is "active usage" in the sense that
+//               matters, and it is the series to watch over time.
+//   query     — Alexa asked for current state. Mostly the app refreshing
+//               device tiles when it opens, but also "Alexa, is the light
+//               on?". Semi-intentional, so it gets its own series instead of
+//               being folded into control or dropped.
+//   discovery — device-list refresh. Rare, and spikes right after linking.
+function usageKind(namespace, name) {
+  if (namespace === 'Alexa.Discovery') return 'discovery';
+  if (namespace === 'Alexa' && name === 'ReportState') return 'query';
+  return 'control';
+}
+
+// -----------------------------------------------------------------------------
 // Entry point
 // -----------------------------------------------------------------------------
 
@@ -173,6 +196,25 @@ exports.handler = async (event, context) => {
         endpointId,
       });
     }
+
+    // One lean INFO line per authenticated, supported directive. This is the
+    // source for the usage metric filters (template.yaml → UsageBy*Filter)
+    // and for per-user breakdowns via Logs Insights.
+    //
+    // Deliberately minimal — no payload, no endpoint state, ~130 bytes. This
+    // is the one INFO-level per-request line the log.js cost note warns about,
+    // and it is affordable precisely because it stays this small: at current
+    // volume (~1.5k directives/day) it is ~6 MB/month, well inside the free
+    // tier. If volume ever grows 100x, drop `pairingId` first (it is the
+    // high-cardinality field) rather than the line as a whole.
+    //
+    // pairingId is the opaque user id, never friendlyName — the breakdown
+    // stays useful without putting user-chosen text into CloudWatch.
+    log.info('alexa.usage', {
+      kind: usageKind(namespace, name),
+      directive: `${namespace}.${name}`,
+      pairingId: user.userId,
+    });
 
     return await forwardDirective({ user, directive, requestId });
   } catch (err) {

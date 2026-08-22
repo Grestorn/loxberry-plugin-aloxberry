@@ -24,8 +24,17 @@ const THRESHOLD = LEVELS[ENV_LEVEL] != null ? LEVELS[ENV_LEVEL] : LEVELS.INFO;
 function emit(level, msg, fields) {
   if (LEVELS[level] < THRESHOLD) return;
   const record = { level, msg, ...(fields || {}) };
+  // Pass the OBJECT, not a pre-stringified one. Under LogFormat: JSON,
+  // Lambda embeds an object argument as real nested JSON:
+  //     {"timestamp":..,"level":..,"requestId":..,"message":{"msg":"…",…}}
+  // whereas a string argument lands as an ESCAPED STRING in `message`:
+  //     {"timestamp":..,"message":"{\"msg\":\"…\"}"}
+  // Only the first form is addressable field-wise — CloudWatch metric
+  // filters can select `$.message.msg`, and Logs Insights discovers
+  // `message.msg` without a `parse` regex. The usage metric filters in
+  // template.yaml depend on this.
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify(record));
+  console.log(record);
 }
 
 const log = {

@@ -89,3 +89,102 @@ Needed only for a **private skill** / full independence. Outline:
 
 Deployments are intentionally **manual** (print the `sam`/`aws` commands; do
 not auto‑run). Detailed deploy helpers live in `aws/scripts/`.
+
+## Usage monitoring
+
+Two different questions, two different mechanisms.
+
+### "How much is the skill used, and is that growing?"
+
+Every user request through Alexa is exactly one invocation of `alexa-handler`
+— no batching, no API Gateway in front, no fan-out. So `AWS/Lambda`
+`Invocations` on that function is already an exact total, free, at 1‑minute
+resolution with 15 months of history:
+
+```bash
+aws cloudwatch get-metric-statistics --profile loxberry-alexa --region eu-west-1 \
+  --namespace AWS/Lambda --metric-name Invocations \
+  --dimensions Name=FunctionName,Value=loxberry-alexa-directive-prod \
+  --start-time "$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" \
+  --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --period 86400 --statistics Sum \
+  --query 'sort_by(Datapoints,&Timestamp)[].[Timestamp,Sum]' --output text
+```
+
+Do **not** read `oauth-handler` invocations as usage. That function is
+dominated by outbound `/event` ChangeReports — roughly 50x the inbound
+directive volume — plus `/health-query`. Account linking (`/token`,
+`/authorize`) is a rounding error on it.
+
+### "What are people doing, and how does that split?"
+
+`Invocations` is undifferentiated, so `alexa-handler` emits one lean INFO line
+per authenticated directive:
+
+```json
+{"msg":"alexa.usage","kind":"control","directive":"Alexa.PowerController.TurnOn","pairingId":"…"}
+```
+
+`kind` is `control` (user changed something — the series that means "active
+usage"), `query` (Alexa asked for state: app tile refresh, or "is the light
+on?"), or `discovery`. Two metric filters turn that into the
+**`Aloxberry-Usage-<stage>`** CloudWatch dashboard: `Aloxberry/Usage`
+→ `Directives` (by `Kind`) and `ControlsByDirective` (by `Directive`).
+
+Metric filters are not retroactive — the graph starts at deploy time. Older
+totals stay available as `Invocations` above.
+
+### Per-user breakdown
+
+Preferred: query it on demand, no standing metric, no per-user cost. The
+directive log group keeps `UsageLogRetentionDays` (default 90) of history.
+
+```
+fields @timestamp
+| filter message.msg = "alexa.usage" and message.kind = "control"
+| stats count() as actions by message.pairingId
+| sort actions desc
+```
+
+Or as a trend, and by what they actually use:
+
+```
+fields @timestamp
+| filter message.msg = "alexa.usage" and message.kind = "control"
+| stats count() as actions by bin(1d), message.pairingId
+
+fields @timestamp
+| filter message.msg = "alexa.usage"
+| stats count() as n by message.directive
+| sort n desc
+```
+
+Deploying with `UsageMetricsPerUser=Yes` additionally publishes
+`DirectivesByUser` (dimensioned by `PairingId`) so the per-user series appears
+on the dashboard permanently. It is off by default for two reasons: each
+pairing becomes its own billed custom metric (~USD 0.30/month) that survives
+15 months even after the user unlinks, and the cost grows linearly with
+adoption. The Insights route above answers the same question, ages out with
+log retention, and costs a fraction of a cent per query.
+
+Either way only the opaque `pairingId` is recorded, never `friendlyName`.
+
+### One structural dependency
+
+The metric filters select `$.message.msg` / `$.message.kind`. That resolves
+only because `shared/src/log.js` passes console.log an **object** — Lambda's
+`LogFormat: JSON` then nests it as real JSON under `message`. If it is ever
+changed back to `console.log(JSON.stringify(record))`, `message` becomes an
+escaped string, the selectors stop matching, and the metrics go flat silently
+(no error anywhere). Verify after a deploy that the shape is nested:
+
+```bash
+MSYS_NO_PATHCONV=1 aws logs filter-log-events --profile loxberry-alexa \
+  --region eu-west-1 --log-group-name "/aws/lambda/loxberry-alexa-directive-prod" \
+  --filter-pattern '{ $.message.msg = "alexa.usage" }' \
+  --start-time $(( ($(date +%s) - 3600) * 1000 )) \
+  --max-items 1 --query 'events[].message' --output text
+```
+
+A hit means the filters work. No hit after a real voice command means the log
+shape regressed — check `log.js` first.

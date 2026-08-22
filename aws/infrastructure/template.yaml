@@ -145,6 +145,31 @@ Parameters:
       nothing at all. Deploy with Tracing=Active only while investigating a
       latency problem, then redeploy with PassThrough.
 
+  UsageLogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 7, 14, 30, 60, 90, 365]
+    Description: >-
+      Retention for the Alexa *directive* log group specifically — deliberately
+      longer than LogRetentionDays, because the per-user usage breakdown is
+      answered by a Logs Insights query over this window rather than by a
+      standing metric. That group is tiny (~0.5 MB per 14 days at current
+      volume), so 90 days costs a few cents. The aggregate usage graph does
+      not depend on this: metric-filter data lives 15 months regardless.
+
+  UsageMetricsPerUser:
+    Type: String
+    Default: 'No'
+    AllowedValues: ['No', 'Yes']
+    Description: >-
+      Publish a per-pairing usage metric (Aloxberry/Usage → DirectivesByUser,
+      dimensioned by PairingId). Off by default — this is the invasive option.
+      Each distinct pairing becomes its own billed CloudWatch custom metric
+      (~USD 0.30/month each) that keeps existing for 15 months even after the
+      user unlinks, and the cost grows linearly with adoption. The equivalent
+      breakdown is available on demand from Logs Insights with no standing
+      metric and no per-user cost — see doc/dev/aws-backend.md.
+
 # -----------------------------------------------------------------------------
 # Conditions
 # -----------------------------------------------------------------------------
@@ -152,6 +177,8 @@ Parameters:
 Conditions:
 
   HasSkillId: !Not [!Equals [!Ref AlexaSkillId, '']]
+
+  UsagePerUser: !Equals [!Ref UsageMetricsPerUser, 'Yes']
 
 # -----------------------------------------------------------------------------
 # Globals — shared defaults for all SAM Functions
@@ -430,7 +457,154 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${AlexaHandlerFunction}
-      RetentionInDays: !Ref LogRetentionDays
+      RetentionInDays: !Ref UsageLogRetentionDays
+
+  # ---- Usage metrics ---------------------------------------------------------
+  #
+  # All three filters read the single `alexa.usage` INFO line emitted per
+  # authenticated directive in alexa-handler/index.js. Two things to know:
+  #
+  #   * The `$.message.*` selectors only resolve because shared/src/log.js
+  #     hands console.log an OBJECT — Lambda's JSON LogFormat then nests it
+  #     as real JSON under `message`. If that ever reverts to
+  #     JSON.stringify(...), `message` becomes an escaped string, the
+  #     selectors stop matching, and these metrics silently go flat.
+  #   * Metric filters are not retroactive. They only see log events ingested
+  #     after the filter exists, so the graph starts at deploy time. Historic
+  #     totals remain available as AWS/Lambda Invocations.
+
+  UsageByKindMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AlexaHandlerLogGroup
+      FilterPattern: '{ $.message.msg = "alexa.usage" }'
+      MetricTransformations:
+        - MetricNamespace: Aloxberry/Usage
+          MetricName: Directives
+          MetricValue: '1'
+          Unit: Count
+          Dimensions:
+            - Key: Kind
+              Value: $.message.kind
+
+  # Split by concrete directive ("Alexa.PowerController.TurnOn", …) so the
+  # dashboard can answer "what are people actually doing?", not just "how
+  # much". Bounded cardinality: one metric per directive type we support,
+  # ~15 total, and it does not grow with the user base.
+  UsageByDirectiveMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AlexaHandlerLogGroup
+      FilterPattern: '{ $.message.msg = "alexa.usage" && $.message.kind = "control" }'
+      MetricTransformations:
+        - MetricNamespace: Aloxberry/Usage
+          MetricName: ControlsByDirective
+          MetricValue: '1'
+          Unit: Count
+          Dimensions:
+            - Key: Directive
+              Value: $.message.directive
+
+  # Opt-in (UsageMetricsPerUser=Yes). Restricted to kind=control on purpose:
+  # a per-user count that included the app's ReportState polling would mostly
+  # measure how often someone opened the Alexa app, not how much they use the
+  # skill. Cardinality grows with the user base — that is the cost to watch.
+  UsageByUserMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: UsagePerUser
+    Properties:
+      LogGroupName: !Ref AlexaHandlerLogGroup
+      FilterPattern: '{ $.message.msg = "alexa.usage" && $.message.kind = "control" }'
+      MetricTransformations:
+        - MetricNamespace: Aloxberry/Usage
+          MetricName: DirectivesByUser
+          MetricValue: '1'
+          Unit: Count
+          Dimensions:
+            - Key: PairingId
+              Value: $.message.pairingId
+
+  UsageDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub Aloxberry-Usage-${Stage}
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric", "x": 0, "y": 0, "width": 24, "height": 7,
+              "properties": {
+                "title": "Active usage — directives per day",
+                "view": "timeSeries", "stacked": false,
+                "region": "${AWS::Region}",
+                "period": 86400, "stat": "Sum",
+                "yAxis": { "left": { "min": 0, "label": "directives/day", "showUnits": false } },
+                "metrics": [
+                  [ "Aloxberry/Usage", "Directives", "Kind", "control",
+                    { "label": "Control — voice + app actions", "color": "#2ca02c" } ],
+                  [ ".", ".", ".", "query",
+                    { "label": "State queries (app refresh / \"is it on?\")", "color": "#1f77b4" } ],
+                  [ ".", ".", ".", "discovery",
+                    { "label": "Discovery", "color": "#ff7f0e" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 7, "width": 8, "height": 5,
+              "properties": {
+                "title": "Control actions — last 30 days",
+                "view": "singleValue", "sparkline": true,
+                "region": "${AWS::Region}",
+                "period": 2592000, "stat": "Sum",
+                "metrics": [
+                  [ "Aloxberry/Usage", "Directives", "Kind", "control", { "label": "Control actions" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 8, "y": 7, "width": 16, "height": 5,
+              "properties": {
+                "title": "What people actually do (control directives)",
+                "view": "timeSeries", "stacked": true,
+                "region": "${AWS::Region}",
+                "period": 86400, "stat": "Sum",
+                "yAxis": { "left": { "min": 0, "showUnits": false } },
+                "metrics": [
+                  [ { "expression": "SEARCH('{Aloxberry/Usage,Directive} MetricName=\"ControlsByDirective\"', 'Sum', 86400)", "id": "e1", "region": "${AWS::Region}" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 12, "width": 24, "height": 7,
+              "properties": {
+                "title": "Per-user control actions (populated only when UsageMetricsPerUser=Yes)",
+                "view": "timeSeries", "stacked": false,
+                "region": "${AWS::Region}",
+                "period": 86400, "stat": "Sum",
+                "yAxis": { "left": { "min": 0, "showUnits": false } },
+                "metrics": [
+                  [ { "expression": "SEARCH('{Aloxberry/Usage,PairingId} MetricName=\"DirectivesByUser\"', 'Sum', 86400)", "id": "e2", "region": "${AWS::Region}" } ]
+                ]
+              }
+            },
+            {
+              "type": "metric", "x": 0, "y": 19, "width": 24, "height": 6,
+              "properties": {
+                "title": "Context — inbound directives vs outbound ChangeReports (invocations/day)",
+                "view": "timeSeries", "stacked": false,
+                "region": "${AWS::Region}",
+                "period": 86400, "stat": "Sum",
+                "yAxis": { "left": { "min": 0, "showUnits": false } },
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${AlexaHandlerFunction}",
+                    { "label": "Inbound — user requests via Alexa" } ],
+                  [ "...", "${OAuthHandlerFunction}",
+                    { "label": "Outbound + linking (mostly ChangeReports)" } ]
+                ]
+              }
+            }
+          ]
+        }
 
 # -----------------------------------------------------------------------------
 # Outputs — values needed to configure the Alexa skill in the Developer Console
@@ -462,3 +636,7 @@ Outputs:
 
   Region:
     Value: !Ref AWS::Region
+
+  UsageDashboardUrl:
+    Description: Console link to the Aloxberry usage dashboard.
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${UsageDashboard}
