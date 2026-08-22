@@ -40,7 +40,7 @@ device in the *Devices* tab.
 | **Lighting / RGB Controller — colour output** — `ColorPickerV2` | Light | Brightness, Color, Color temperature | "make *name* blue", "warm white", brightness 0 = off. |
 | **Automatic Shading** — blinds, shutters, awnings — `Jalousie` | Interior blind | Range (position) | "set *name* to 50", "open/close/raise/lower *name*". |
 | **Window** (automatic window) — `Window` | Interior blind | Range (position) | "set *name* to 50", "open/close *name*". |
-| **Garage / Gate** — `Gate` | Garage door | Range (position) | "open/close *name*", or set to a position. |
+| **Garage / Gate** — `Gate` | Door | Range (position) — **or** Mode | "open/close *name*", or set to a position. Switching it to the `GARAGE_DOOR` category makes Alexa **ask for a spoken security code before opening** — see **[gates.md](gates.md)**. |
 | **Virtual input – slider** — `Slider` | Other | Range (value) | "set *name* to *N*" within its own min/max. |
 | **Selection Switch +/−** (value selector) — `ValueSelector` | Other | Range (value) | Step a numeric value up/down. |
 | **Radio Buttons** (8× / 16×) — `Radio` | Other | Mode (named outputs) | "set *name* to *option*" (one active at a time). |
@@ -81,6 +81,12 @@ Two things to know:
 - The verbs only appear **after a re‑discovery**: say
   **"Alexa, discover devices"** once after upgrading the plugin, otherwise an
   already‑known blind keeps responding to percentages only.
+
+For a **gate**, the plain "open" is worth a second thought: exposed as a
+`GARAGE_DOOR` instead of a `DOOR`, Alexa asks for a **spoken security code**
+before it opens (never before it closes). That is a per-device choice with real
+trade-offs — **[gates.md](gates.md)** covers both options and how to set the
+code up.
 
 ### Lighting Controllers expose each channel individually — plus a "Master"
 
@@ -161,7 +167,7 @@ These appear only for the types they apply to:
 
 | Setting | Applies to | Why you'd change it |
 |---|---|---|
-| **Reverse direction** | Blinds, windows, gates, sliders | If 0 % / 100 % run opposite to what Alexa expects (e.g. unusually wired blinds). |
+| **Reverse direction** | Blinds, windows, gates, sliders | If 0 % / 100 % run opposite to what Alexa expects (e.g. unusually wired blinds). Does not apply to a gate exposed as a **garage door** — that one has no percentage axis. |
 | **Trigger timer** / **Toggle with timer** | Timed switch | Makes "Alexa, turn on" fire the Loxone timer instead of switching on permanently. On a **stairwell‑light switch** the light goes on for the configured time and then off by itself ("Trigger timer"). On a **comfort switch** the same command turns it on with the timer when it's off, and off when it's already on ("Toggle with timer"). "Turn off" always switches off immediately. The timer length itself is set in Loxone Config. |
 | **Override + Hours** | Room controller | Send an Alexa temperature change as a **timed manual override** instead of permanently editing the Loxone schedule. Hours = how long it lasts (1–168). |
 | **Step** | Audio zones | How many percent "louder/quieter" moves the volume (1–50). |
@@ -208,6 +214,10 @@ These appear only for the types they apply to:
   **[tips.md → Starting Audioserver favorites by voice](tips.md#2-starting-audioserver-favorites-by-voice-radiofav-workaround)**.
   Why Alexa hijacks music commands and how to choose voice-safe names is
   covered in **[audio.md](audio.md)**.
+- **Gates that guard an entrance** — driveway gate, garage door, barrier —
+  belong in the `GARAGE_DOOR` category, where Alexa demands a spoken code
+  before opening. You trade away partial positions for it. See
+  **[gates.md](gates.md)**.
 - Keep **friendly names unique** across rooms and easy to pronounce — that name
   *is* the voice command.
 

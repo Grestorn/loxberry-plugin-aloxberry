@@ -86,7 +86,7 @@ const VALID_CATEGORIES = new Set([
   'TEMPERATURE_SENSOR', 'HUMIDITY_SENSOR', 'AIR_QUALITY_MONITOR',
   'CONTACT_SENSOR', 'MOTION_SENSOR',
   // Openings
-  'INTERIOR_BLIND', 'EXTERIOR_BLIND', 'DOOR',
+  'INTERIOR_BLIND', 'EXTERIOR_BLIND', 'DOOR', 'GARAGE_DOOR',
   // Audio / video
   'SPEAKER', 'STREAMING_DEVICE', 'MUSIC_SYSTEM',
   // Scenes / hubs / fallback
@@ -97,10 +97,6 @@ const VALID_CATEGORIES = new Set([
 // Categories that were once selectable but have been removed because Alexa's
 // certification rules require interfaces we can't provide from a Loxone-only
 // daemon:
-//   GARAGE_DOOR — needs Alexa.ModeController + GarageDoor.Position semantics
-//                 + voice PIN + restricted to a locale set that excludes
-//                 nl-NL. Our RangeController-based Gate dispatch is silently
-//                 unreachable by voice on this category.
 //   DOORBELL    — needs Alexa.DoorbellEventSource (a doorbell announces
 //                 itself; the user does not voice-control it). Pure
 //                 PowerController/SceneController endpoints render a
@@ -109,11 +105,17 @@ const VALID_CATEGORIES = new Set([
 //                 The daemon has no way to provide one.
 //
 // On load, existing devices.json entries with one of these categories are
-// silently migrated to their control type's default (e.g. Gate → DOOR,
-// Switch with DOORBELL → SWITCH). Migration is forensic-logged but not
-// surfaced in the UI. The corrected category is persisted back to disk on
-// the next CGI save.
-const REMOVED_CATEGORIES = new Set(['GARAGE_DOOR', 'DOORBELL', 'CAMERA']);
+// silently migrated to their control type's default (e.g. Switch with
+// DOORBELL → SWITCH). Migration is forensic-logged but not surfaced in the
+// UI. The corrected category is persisted back to disk on the next CGI save.
+//
+// GARAGE_DOOR was on this list until the Gate type learned the real
+// Alexa.ModeController + GarageDoor.Position shape (see structure.js). It is
+// now a supported opt-in category, so it must NOT be migrated away. Note the
+// one-way consequence for anyone who set it before that: their row was
+// already rewritten to DOOR on an earlier load, and re-selecting GARAGE_DOOR
+// is a deliberate user action — we do not try to resurrect the old value.
+const REMOVED_CATEGORIES = new Set(['DOORBELL', 'CAMERA']);
 
 const DEFAULT_GLOBALS = Object.freeze({
   enabled: true,
@@ -283,15 +285,13 @@ class DevicesConfig extends EventEmitter {
     for (const d of data.devices) {
       if (!d || typeof d !== 'object') continue;
       if (typeof d.uuid !== 'string' || d.uuid.length < 8) continue;
-      const displayCategory = this._resolveDisplayCategory(d);
+      const { displayCategory, capabilities } = this._resolveArm(d);
       out.push({
         uuid:            d.uuid,
         enabled:         d.enabled !== false,                                 // default true
         friendlyName:    String(d.friendlyName || '').trim(),
         displayCategory,
-        capabilities:    Array.isArray(d.capabilities)
-                            ? d.capabilities.filter((c) => typeof c === 'string')
-                            : [],
+        capabilities,
         // Reverse the RangeController axis ("100 means closed" vs "100 means
         // open"). Per-device override of the type's default; missing field
         // means "use default" — but since the picker always writes the
@@ -339,6 +339,66 @@ class DevicesConfig extends EventEmitter {
       });
     }
     return out;
+  }
+
+  // Resolve the (category, capabilities) pair for a stored device.
+  //
+  // The two fields are independent everywhere except on a garage door, where
+  // Alexa applies its voice-code challenge only to the exact combination
+  // GARAGE_DOOR + ModeController(GarageDoor.Position). Any other pairing is a
+  // misconfiguration, and both misconfigurations are dangerous in the same
+  // quiet way — the device still works, it just isn't protected — so they are
+  // resolved here rather than passed through.
+  //
+  // GARAGE_DOOR without ModeController → the CATEGORY is demoted to DOOR.
+  //   The device keeps behaving exactly as it did, as an ordinary opening with
+  //   a position range. It matters that this direction demotes the category
+  //   rather than promoting the capability: this is the shape every pre-0.7.1
+  //   install has on disk (Gate defaulted to GARAGE_DOOR back then), and
+  //   silently converting those gates into voice-code garage doors would stop
+  //   them opening until their owner worked out that they now had to set a
+  //   code in the Alexa app. Switching on a security feature behind someone's
+  //   back is not a favour. It is also the same demotion 0.7.1 already
+  //   performed, so upgrading from before it lands in the same place either
+  //   way.
+  //
+  // GARAGE_DOOR with ModeController AND extras → the EXTRAS are dropped.
+  //   Here the user is genuinely asking for a garage door, so the fix keeps
+  //   the gated arm. A RangeController left alongside it would hand Alexa a
+  //   second way to open the same gate — "set the garage door to 100 percent"
+  //   — carrying no challenge at all, while the prompt on "open" made the
+  //   whole thing look protected.
+  //
+  // The picker cannot produce either state (structure.js couples the two), so
+  // in practice this fires only on an upgrade or a hand-edited file.
+  _resolveArm(d) {
+    const displayCategory = this._resolveDisplayCategory(d);
+    const caps = Array.isArray(d.capabilities)
+      ? d.capabilities.filter((c) => typeof c === 'string')
+      : [];
+    if (displayCategory !== 'GARAGE_DOOR') return { displayCategory, capabilities: caps };
+
+    if (!caps.includes('ModeController')) {
+      this.log.info(
+        { uuid: d.uuid, from: displayCategory, to: 'DOOR', capabilities: caps },
+        'GARAGE_DOOR without the ModeController arm cannot be voice-code gated by Alexa — '
+        + 'demoted to DOOR; re-select GARAGE_DOOR on the Devices page to get the code prompt',
+      );
+      // Counted as a migration so the corrected value is written back to disk
+      // and the "re-run discovery" banner appears — exactly what the 0.7.1
+      // removal of this category did for the same rows.
+      this._migratedThisLoad += 1;
+      return { displayCategory: 'DOOR', capabilities: caps };
+    }
+
+    if (caps.length === 1) return { displayCategory, capabilities: caps };
+    this.log.warn(
+      { uuid: d.uuid, from: caps, to: ['ModeController'] },
+      'GARAGE_DOOR endpoint must expose only ModeController (GarageDoor.Position) — '
+      + 'other capabilities dropped; they would give Alexa an opening path that '
+      + 'skips the voice code',
+    );
+    return { displayCategory, capabilities: ['ModeController'] };
   }
 
   // Resolve a stored device's displayCategory through the removed-category

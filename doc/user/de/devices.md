@@ -41,7 +41,7 @@ als definitiven Weg, dein Gerät im Tab *Geräte* zu finden.
 | **Lichtsteuerung / RGB – Farbausgang** — `ColorPickerV2` | Licht | Helligkeit, Farbe, Farbtemperatur | „mache *Name* blau", „warmweiß", Helligkeit 0 = aus. |
 | **Automatikbeschattung** — Jalousien, Rollläden, Markisen — `Jalousie` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50", „öffne/schließe/fahre *Name* hoch/runter". |
 | **Fenster** (automatisch) — `Window` | Innenjalousie | Bereich (Position) | „stelle *Name* auf 50", „öffne/schließe *Name*". |
-| **Tor** (Garage/Tor) — `Gate` | Garagentor | Bereich (Position) | „öffne/schließe *Name*" oder auf eine Position fahren. |
+| **Tor** (Garage/Tor) — `Gate` | Tür | Bereich (Position) — **oder** Modus | „öffne/schließe *Name*" oder auf eine Position fahren. Stellst du es auf die Kategorie `GARAGE_DOOR` um, **fragt Alexa vor dem Öffnen nach einem gesprochenen Sicherheitscode** — siehe **[gates.md](gates.md)**. |
 | **Virtueller Eingang – Schieberegler** — `Slider` | Sonstiges | Bereich (Wert) | „stelle *Name* auf *N*" innerhalb min/max. |
 | **Auswahlschalter +/−** (Wertgeber) — `ValueSelector` | Sonstiges | Bereich (Wert) | Einen Zahlenwert hoch/runter stufen. |
 | **Radiotasten** (8× / 16×) — `Radio` | Sonstiges | Modus (benannte Ausgänge) | „stelle *Name* auf *Option*" (einer aktiv). |
@@ -82,6 +82,12 @@ Zwei Dinge solltest du wissen:
 - Die Verben erscheinen erst **nach einer erneuten Suche**: Sage nach dem
   Plugin-Update einmal **„Alexa, suche Geräte"**, sonst reagiert eine bereits
   bekannte Jalousie weiterhin nur auf Prozentangaben.
+
+Beim **Tor** lohnt sich beim schlichten „öffne" ein zweiter Gedanke: Als
+`GARAGE_DOOR` statt als `DOOR` freigegeben, fragt Alexa vor dem Öffnen nach
+einem **gesprochenen Sicherheitscode** (vor dem Schließen nie). Das ist eine
+Entscheidung je Gerät mit echten Abwägungen — **[gates.md](gates.md)** erklärt
+beide Varianten und die Einrichtung des Codes.
 
 ### Lichtsteuerungen geben jeden Lichtkanal einzeln frei — plus einen „Master"
 
@@ -164,7 +170,7 @@ Diese erscheinen nur bei den Typen, für die sie gelten:
 
 | Einstellung | Gilt für | Warum ändern |
 |---|---|---|
-| **Richtung umkehren** | Jalousien, Fenster, Tore, Regler | Wenn 0 % / 100 % entgegengesetzt zu Alexas Erwartung laufen (z. B. ungewöhnlich verdrahtete Jalousie). |
+| **Richtung umkehren** | Jalousien, Fenster, Tore, Regler | Wenn 0 % / 100 % entgegengesetzt zu Alexas Erwartung laufen (z. B. ungewöhnlich verdrahtete Jalousie). Gilt nicht für ein Tor, das als **Garagentor** freigegeben ist — dieses hat keine Prozentachse. |
 | **Timer auslösen** / **Umschalten mit Timer** | Zeitgesteuerter Schalter | Lässt „Alexa, einschalten" den Loxone-Timer auslösen, statt dauerhaft einzuschalten. Beim **Treppenlicht-Schalter** geht das Licht für die eingestellte Zeit an und dann von selbst aus („Timer auslösen"). Beim **Komfortschalter** schaltet derselbe Befehl ein (mit Timer), wenn es aus ist, und aus, wenn es bereits an ist („Umschalten mit Timer"). „Ausschalten" schaltet immer sofort aus. Die Timer-Dauer wird in Loxone Config eingestellt. |
 | **Überschreibung + Stunden** | Raumregler | Eine Alexa-Temperaturänderung als **zeitlich begrenzte Übersteuerung** senden statt den Loxone-Zeitplan dauerhaft zu ändern. Stunden = Dauer (1–168). |
 | **Schritt** | Audiozonen | Um wie viel Prozent „lauter/leiser" die Lautstärke ändert (1–50). |

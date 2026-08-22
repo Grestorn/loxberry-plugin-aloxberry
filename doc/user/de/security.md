@@ -117,6 +117,34 @@ nach 10 Minuten ab. Es werden keine Passwörter mit Amazon geteilt. Den Skill in
 der Alexa-App zu entkoppeln oder „Alle Alexa-Verknüpfungen löschen" zu drücken,
 widerruft den Zugriff.
 
+## 8. Ein Tor kann vor dem Öffnen einen gesprochenen Code verlangen
+
+Alles bisher Genannte hält *andere Leute* aus deinem System heraus. Dieser
+Punkt ist anders: Er schützt vor jemandem, der ganz legitim in Hörweite deines
+Echos steht — Besuch, ein Paketbote, ein Kind, eine Stimme durchs offene
+Fenster.
+
+Ein Loxone-Tor in der Kategorie **Garagentor** behandelt Amazon als
+Garagentor, und das heißt:
+
+> *„Alexa, öffne das Garagentor."* → *„Wie lautet dein Sprachcode?"*
+
+Der Befehl erreicht deinen LoxBerry erst, wenn der Code stimmt. Drei
+Eigenschaften machen das wertvoll:
+
+- **Der Code wird in Amazons Cloud geprüft, bevor überhaupt etwas gesendet
+  wird.** Eine falsche Antwort erzeugt gar keinen Datenverkehr — dein
+  Miniserver erfährt von dem Versuch nichts.
+- **Nichts in diesem Projekt hält den Code jemals.** Weder das Plugin noch die
+  Bridge noch die AWS-Lambda. Er kann hier nicht abfließen, weil er hier nicht
+  liegt.
+- **Nur das Öffnen wird abgefragt.** Schließen geht immer sofort durch — das
+  eigene Tor nicht zubekommen ist der schlimmere Fehlerfall.
+
+Es ist **je Tor optional**, denn es kostet dich die Zwischenpositionen und ist
+auf Niederländisch nicht verfügbar. Einrichtung, Abwägungen und
+Fehlersuche stehen in **[gates.md](gates.md)**.
+
 ---
 
 ## Zusammenfassung
@@ -128,4 +156,5 @@ widerruft den Zugriff.
 | „Gehen meine Loxone-Passwörter zu Amazon?" | Nein — sie verlassen den LoxBerry nie. |
 | „Was wird freigegeben?" | Nur, was du ausdrücklich hinzufügst, Gerät für Gerät. |
 | „Kann ich es sofort stoppen?" | Hauptschalter, Betriebszustand-Pause und Ein-Klick-Verknüpfungslöschung. |
+| „Kann jemand im Raum mein Tor einfach aufrufen?" | Nicht, wenn du es als Garagentor freigibst — Alexa verlangt vorher einen gesprochenen Code, geprüft in Amazons Cloud. |
 | „Muss ich den Servern des Projekts vertrauen?" | Nein — jede Cloud-Komponente ist Open Source und selbst hostbar. |

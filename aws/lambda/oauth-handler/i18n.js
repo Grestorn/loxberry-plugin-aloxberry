@@ -121,6 +121,29 @@ const TRANSLATIONS = {
     es: 'Vincular este Aloxberry',
     nl: 'Deze Aloxberry koppelen',
   },
+  // Voice-code reminder. Amazon's security requirements for skills that can
+  // unlock or open something ask that the account-linking page give the user
+  // the chance to set a voice code, and remind them not to reuse a code they
+  // use elsewhere. Alexa owns the code end to end - it is set per device in
+  // the Alexa app, checked in Amazon's cloud, and never travels to the skill,
+  // the bridge or the LoxBerry. Saying so plainly here is also the honest
+  // answer to "where does my garage door PIN live?".
+  'auth_form.voice_code_title': {
+    en: 'Opening a garage door or gate?',
+    de: 'Garagentor oder Hoftor freigeben?',
+    fr: 'Vous exposez une porte de garage ou un portail ?',
+    it: 'Esponi una porta del garage o un cancello?',
+    es: '¿Vas a exponer una puerta de garaje o una cancela?',
+    nl: 'Een garagedeur of poort delen?',
+  },
+  'auth_form.voice_code_body': {
+    en: 'Set a <strong>voice code</strong> for it in the Alexa app under Devices → the device → Voice code. Alexa then asks for that code before it opens the door. Pick a code you do not use for any other account or service — Amazon checks it, and Aloxberry never sees it.',
+    de: 'Hinterlege dafür in der Alexa-App unter Geräte → das Gerät → Sprachcode einen <strong>Sprachcode</strong>. Alexa fragt dann vor dem Öffnen nach diesem Code. Wähle einen Code, den du für kein anderes Konto und keinen anderen Dienst verwendest — geprüft wird er von Amazon, Aloxberry sieht ihn nie.',
+    fr: "Définissez-lui un <strong>code vocal</strong> dans l'application Alexa sous Appareils → l'appareil → Code vocal. Alexa demandera ce code avant d'ouvrir. Choisissez un code que vous n'utilisez pour aucun autre compte ou service — c'est Amazon qui le vérifie, Aloxberry ne le voit jamais.",
+    it: "Imposta per quel dispositivo un <strong>codice vocale</strong> nell'app Alexa in Dispositivi → il dispositivo → Codice vocale. Alexa lo chiederà prima di aprire. Scegli un codice che non usi per nessun altro account o servizio — lo verifica Amazon, Aloxberry non lo vede mai.",
+    es: 'Configúrale un <strong>código de voz</strong> en la app de Alexa, en Dispositivos → el dispositivo → Código de voz. Alexa pedirá ese código antes de abrir. Elige un código que no uses en ninguna otra cuenta ni servicio: lo comprueba Amazon y Aloxberry nunca lo ve.',
+    nl: 'Stel er in de Alexa-app een <strong>spraakcode</strong> voor in via Apparaten → het apparaat → Spraakcode. Alexa vraagt die code dan voordat de deur opengaat. Kies een code die je voor geen enkel ander account of andere dienst gebruikt — Amazon controleert hem en Aloxberry ziet hem nooit.',
+  },
   'auth_form.err_pair_required': {
     en: "A pair code is required. Generate one in the Aloxberry plugin's web UI.",
     de: 'Ein Pair-Code wird benötigt. Erzeuge einen in der Web-Oberfläche der Aloxberry-Skill.',

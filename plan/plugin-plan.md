@@ -1107,7 +1107,8 @@ behavior, not a coverage gap.
 | ColorPickerV2 | BrightnessController + ColorController + ColorTemperatureController | LIGHT |
 | Jalousie | RangeController (`ManualPosition`, axis-invertable) | INTERIOR_BLIND |
 | Window | RangeController (`moveToPosition`) | INTERIOR_BLIND |
-| Gate | RangeController (snap to `open`/`close`/`PartiallyOpen`) | GARAGE_DOOR |
+| Gate | RangeController (snap to `open`/`close`/`PartiallyOpen`) | DOOR |
+| Gate (opt-in) | ModeController (instance `GarageDoor.Position`, Up/Down + semantics) — Alexa prompts for the user's voice code before `open` | GARAGE_DOOR |
 | Slider | RangeController (native min/max/step from `details`) | OTHER |
 | IRoomControllerV2 | ThermostatController + TemperatureSensor | THERMOSTAT |
 | ACControl | PowerController + ThermostatController + TemperatureSensor + ModeController(fan) | AIR_CONDITIONER |

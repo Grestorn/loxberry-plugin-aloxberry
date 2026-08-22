@@ -1362,6 +1362,9 @@ function renderAuthorizeForm({
     .err { background: #fee; border: 1px solid #c44; color: #800;
            padding: 0.75rem; border-radius: 6px; margin-top: 1rem; }
     .hint { color: #777; font-size: 0.85rem; margin-top: 0.25rem; }
+    .vc { margin-top: 1.75rem; padding: 0.8rem 0.9rem; border: 1px solid #bbb;
+          border-radius: 6px; font-size: 0.85rem; line-height: 1.5; }
+    .vc strong.h { display: block; margin-bottom: 0.25rem; }
     code { background: #f3f3f3; padding: 0.05rem 0.3rem; border-radius: 3px; }
     ol { padding-left: 1.2rem; }
     ol li { margin: 0.25rem 0; }
@@ -1408,6 +1411,11 @@ function renderAuthorizeForm({
 
     <button type="submit">${t(lang, 'auth_form.button')}</button>
   </form>
+
+  <div class="vc">
+    <strong class="h">${t(lang, 'auth_form.voice_code_title')}</strong>
+    ${t(lang, 'auth_form.voice_code_body')}
+  </div>
 </body>
 </html>`;
 }

@@ -275,6 +275,14 @@ const RANGE_INSTANCE_SLIDER = 'Aloxberry.Slider.Value';
 // Alexa-side scale.
 const BLIND_TYPES = new Set(['Jalousie', 'Window', 'Gate']);
 
+// Types whose ModeController carries the Loxone mood/scene list. Every other
+// type with a ModeController (Radio, Sequential, Ventilation, ACControl,
+// audio, binary sensors, Gate's garage door) has its own instance and its own
+// Discovery branch, so this set keeps the mood branch from swallowing them.
+// Previously it relied on the mood resolver returning empty for a non-light
+// control — true, but only by accident.
+const LIGHT_MOOD_TYPES = new Set(['LightController', 'LightControllerV2']);
+
 // Pull Slider config from the structure cache. Slider.details has `min`,
 // `max`, `step`, `format`. Default defensively so a malformed structure
 // doesn't break Discovery; a real Loxone install populates all four.
@@ -408,6 +416,48 @@ function alexaModeFromAC(loxoneMode) {
     // that case; Alexa shows the last-known mode + powerState=ON.
     default: return null;
   }
+}
+
+// Gate + GARAGE_DOOR: the garage-door ModeController instance.
+//
+// Unlike every other instance in this file, this string is NOT ours to choose
+// and is deliberately outside the `Aloxberry.*` namespace. Amazon matches on
+// the literal `GarageDoor.Position` (paired with the GARAGE_DOOR display
+// category) to recognise an endpoint as a garage door — and that recognition
+// is the entire feature: it is what makes Alexa's cloud prompt "What is your
+// voice code?" before it dispatches an open to us. Rename it and you keep a
+// working two-state control that silently loses its voice-code gate.
+//
+// The two mode values are Amazon's as well. Position.Up = open,
+// Position.Down = closed.
+const MODE_INSTANCE_GARAGE = 'GarageDoor.Position';
+const GARAGE_MODE_OPEN     = 'Position.Up';
+const GARAGE_MODE_CLOSED   = 'Position.Down';
+
+// Loxone Gate `position` (0..1) -> the two Alexa garage-door modes. Shared by
+// the pull path (ReportState) and the push path (state-reporter ChangeReport)
+// so the two can never disagree about whether the door is open.
+//
+// Only a fully-closed gate reports Closed. A partially-open one is Open, which
+// is the safe direction to round: Alexa's Closed state feeds routines like
+// "if the garage door is closed, arm the alarm", and a gate stopped at 30 %
+// must not satisfy that.
+//
+// Loxone also publishes `active` (-1 closing / 0 idle / +1 opening). Alexa's
+// mode has no in-motion value, so a moving gate simply keeps reporting the
+// position it is passing through — it flips to Open the moment it leaves the
+// closed stop, which matches what a person watching the door would say.
+function garageModeFromPosition(rawPosition) {
+  // Reject the empty values explicitly: Number(null) and Number('') are both
+  // 0, which is finite, so a missing state would otherwise be reported to
+  // Alexa as a confidently closed door.
+  if (rawPosition == null || rawPosition === '') return null;
+  const n = Number(rawPosition);
+  if (!Number.isFinite(n)) return null;
+  // Round to the same 0..100 integer scale the blind path uses before
+  // comparing, so float jitter around the closed stop (1e-9) doesn't read as
+  // "open" on one path and "closed" on the other.
+  return Math.round(n * 100) > 0 ? GARAGE_MODE_OPEN : GARAGE_MODE_CLOSED;
 }
 
 // Radio: ModeController instance for Loxone's "Radio buttons" picker.
@@ -820,7 +870,12 @@ class DirectiveRouter {
     //     accepts at write time.
     //   - Slider: native min/max/step from the Loxone control's `details`.
     //     No presets (the slider's semantics are user-defined).
-    if (endpoint.capabilities?.includes('RangeController')) {
+    // `!_isGarageEndpoint` is not redundant with the capability check: a
+    // hand-edited row listing both arms would otherwise advertise a
+    // RangeController next to the garage door, and "set the garage door to 100
+    // percent" would open it with no voice-code challenge.
+    if (endpoint.capabilities?.includes('RangeController')
+        && !this._isGarageEndpoint(endpoint)) {
       const control = this.structureCache?.getControl(endpoint.uuid);
       const isSlider = control?.type === 'Slider';
       const isVentilation = control?.type === 'Ventilation';
@@ -1090,6 +1145,103 @@ class DirectiveRouter {
         caps.push(blindCap);
       }
     }
+    // Gate + GARAGE_DOOR: the garage-door ModeController. Mutually exclusive
+    // with the RangeController block above — the picker couples the category
+    // to the capability (structure.js `capabilityCategories`), so exactly one
+    // of the two is ever present in endpoint.capabilities for a Gate.
+    //
+    // The shape below is not ours to improvise. Amazon recognises a garage
+    // door by the exact triple (GARAGE_DOOR category, Alexa.ModeController,
+    // instance GarageDoor.Position) and only then runs its voice-code
+    // challenge before dispatching an open. The `semantics` block is what
+    // makes the bare verbs reachable at all: without actionMappings, "open
+    // the garage door" has nowhere to land, because the mode VALUES
+    // (Position.Up/Down) are not themselves utterances the NLU resolves.
+    //
+    // `ordered: false` is required — Up/Down are named states, not points on
+    // a scale, so AdjustMode ("open it a bit more") is meaningless here and
+    // Alexa will not offer it.
+    if (this._isGarageEndpoint(endpoint)) {
+      caps.push({
+        type: 'AlexaInterface',
+        interface: 'Alexa.ModeController',
+        instance: MODE_INSTANCE_GARAGE,
+        version: PROTO_VERSION,
+        properties: {
+          supported: [{ name: 'mode' }],
+          retrievable: true,
+          proactivelyReported: true,
+        },
+        capabilityResources: {
+          friendlyNames: [
+            { '@type': 'asset', value: { assetId: 'Alexa.Setting.Mode' } },
+          ],
+        },
+        configuration: {
+          ordered: false,
+          supportedModes: [
+            {
+              value: GARAGE_MODE_OPEN,
+              modeResources: {
+                friendlyNames: [
+                  { '@type': 'asset', value: { assetId: 'Alexa.Value.Open' } },
+                  ...localizedTexts({
+                    'en-US': 'Open',
+                    'de-DE': 'Offen',
+                    'fr-FR': 'Ouvert',
+                    'it-IT': 'Aperto',
+                    'es-ES': 'Abierto',
+                    'nl-NL': 'Open',
+                  }),
+                ],
+              },
+            },
+            {
+              value: GARAGE_MODE_CLOSED,
+              modeResources: {
+                friendlyNames: [
+                  { '@type': 'asset', value: { assetId: 'Alexa.Value.Close' } },
+                  ...localizedTexts({
+                    'en-US': 'Closed',
+                    'de-DE': 'Geschlossen',
+                    'fr-FR': 'Ferme',
+                    'it-IT': 'Chiuso',
+                    'es-ES': 'Cerrado',
+                    'nl-NL': 'Gesloten',
+                  }),
+                ],
+              },
+            },
+          ],
+        },
+        semantics: {
+          actionMappings: [
+            {
+              '@type': 'ActionsToDirective',
+              actions: ['Alexa.Actions.Close', 'Alexa.Actions.Lower'],
+              directive: { name: 'SetMode', payload: { mode: GARAGE_MODE_CLOSED } },
+            },
+            {
+              '@type': 'ActionsToDirective',
+              actions: ['Alexa.Actions.Open', 'Alexa.Actions.Raise'],
+              directive: { name: 'SetMode', payload: { mode: GARAGE_MODE_OPEN } },
+            },
+          ],
+          stateMappings: [
+            {
+              '@type': 'StatesToValue',
+              states: ['Alexa.States.Closed'],
+              value: GARAGE_MODE_CLOSED,
+            },
+            {
+              '@type': 'StatesToValue',
+              states: ['Alexa.States.Open'],
+              value: GARAGE_MODE_OPEN,
+            },
+          ],
+        },
+      });
+    }
     // ModeController for LightController/V2 — modes are the Loxone moods
     // (v2) or scenes (v1). Only added if (a) the device opted in via
     // capabilities config AND (b) we can resolve a non-empty list right
@@ -1097,7 +1249,8 @@ class DirectiveRouter {
     // yet) and gracefully degrades to PowerController-only; the user
     // re-running "Alexa, discover my devices" after the daemon settles
     // picks up the full capability.
-    if (endpoint.capabilities?.includes('ModeController')) {
+    if (endpoint.capabilities?.includes('ModeController')
+        && LIGHT_MOOD_TYPES.has(this.structureCache?.getControl(endpoint.uuid)?.type)) {
       // v2 and v1 use different state names + parse formats but produce
       // the same [{id, name}] shape. Pick the resolver by control type
       // and the instance string accordingly so directives can dispatch.
@@ -1904,7 +2057,25 @@ class DirectiveRouter {
     // Build the right Loxone command per (type, instance) pair.
     let command;
     let responseInstance = h.instance;
-    if (control && AUDIO_TYPES.has(control.type) && h.instance === MODE_INSTANCE_REPEAT) {
+    if (h.instance === MODE_INSTANCE_GARAGE && this._isGarageEndpoint(endpoint)) {
+      // Garage door. By the time this arrives, Alexa has already run the
+      // voice-code challenge for an open (and skipped it for a close, which
+      // is Amazon's design, not an oversight on our side) — the daemon has
+      // no code to check and never receives one.
+      //
+      // rangeAxisInverted is deliberately NOT applied. That flag exists to
+      // fix up an oddly-wired *position* axis for the RangeController arm;
+      // here the two modes are named states mapped straight onto Loxone's
+      // own open/close verbs, so there is nothing to mirror. Honouring it
+      // would turn a stale checkbox from the device's DOOR days into a
+      // garage door that opens when told to close.
+      if (requestedMode === GARAGE_MODE_OPEN)        command = 'open';
+      else if (requestedMode === GARAGE_MODE_CLOSED) command = 'close';
+      else {
+        return errorResponse(h, 'INVALID_VALUE',
+          `Unsupported garage door mode: ${requestedMode}`);
+      }
+    } else if (control && AUDIO_TYPES.has(control.type) && h.instance === MODE_INSTANCE_REPEAT) {
       const numeric = REPEAT_BY_ALEXA[requestedMode];
       if (numeric === undefined) {
         return errorResponse(h, 'INVALID_VALUE', `Unsupported repeat mode: ${requestedMode}`);
@@ -2119,6 +2290,16 @@ class DirectiveRouter {
     if (!endpoint.uuid) {
       return errorResponse(h, 'INVALID_DIRECTIVE',
         `Endpoint ${endpointId} has no uuid mapping`);
+    }
+    // The garage-door mode is unordered (Discovery says `ordered: false`), so
+    // Alexa should never send AdjustMode for it. Reject rather than fall
+    // through: the shared path below sends Loxone's `plus`/`minus`, which on a
+    // Gate is not a no-op — it steps the gate's position. A stale endpoint
+    // cache must not be able to nudge a garage door open, least of all by a
+    // route that carries no voice-code challenge.
+    if (this.structureCache?.getControl(endpoint.uuid)?.type === 'Gate') {
+      return errorResponse(h, 'INVALID_DIRECTIVE',
+        'A garage door has no adjustable mode — use open or close');
     }
 
     const res = await this.loxoneCommand.sendByUuid({
@@ -2630,6 +2811,38 @@ class DirectiveRouter {
     const bounds = rangeBoundsFor(control);
     const axisInverted = !!endpoint.rangeAxisInverted;
     return axisInverted ? mirrorInRange(raw, bounds) : raw;
+  }
+
+  // Is this endpoint the voice-code-gated garage-door rendering of a Gate?
+  //
+  // Deliberately requires all three of: the Loxone control really is a Gate,
+  // the endpoint is categorised GARAGE_DOOR, and the ModeController arm is
+  // active. Any two out of three describes a misconfiguration, and every such
+  // misconfiguration ends the same way — a control that opens the door without
+  // Alexa ever asking for the code — so the daemon refuses to treat it as a
+  // garage door rather than doing its best with it. devices-config normalises
+  // the category/capability pair on load, so in practice this agrees with the
+  // picker; it is checked here too because Discovery, ReportState and SetMode
+  // must all reach the same verdict.
+  _isGarageEndpoint(endpoint) {
+    if (!endpoint?.capabilities?.includes('ModeController')) return false;
+    if (!endpoint?.displayCategories?.includes('GARAGE_DOOR')) return false;
+    return this.structureCache?.getControl(endpoint.uuid)?.type === 'Gate';
+  }
+
+  // Current garage-door mode from the Gate's `position` state. Returns null
+  // when the state cache is cold — the caller omits the property rather than
+  // guessing, so Alexa keeps its last known value instead of being told a
+  // freshly-restarted daemon's garage door is closed.
+  _resolveGarageMode(endpoint) {
+    if (!this.structureCache || !this.stateCache || !endpoint?.uuid) return null;
+    const control = this.structureCache.getControl(endpoint.uuid);
+    if (control?.type !== 'Gate') return null;
+    const uuid = control.states?.position;
+    if (!uuid) return null;
+    const entry = this.stateCache.getValue(uuid);
+    if (!entry) return null;
+    return garageModeFromPosition(entry.value);
   }
 
   // Pick the right RangeController instance for the directive response.
@@ -4217,6 +4430,22 @@ class DirectiveRouter {
         }
       }
     }
+    // Garage-door mode (Gate with the GARAGE_DOOR arm active). Same
+    // capability gate as every other ModeController flavour; the control-type
+    // check is what keeps the flavours apart.
+    if (this._isGarageEndpoint(endpoint)) {
+      const mode = this._resolveGarageMode(endpoint);
+      if (mode != null) {
+        properties.push({
+          namespace: 'Alexa.ModeController',
+          instance: MODE_INSTANCE_GARAGE,
+          name: 'mode',
+          value: mode,
+          timeOfSample: nowIso(),
+          uncertaintyInMilliseconds: 0,
+        });
+      }
+    }
     if (colorState && endpoint.capabilities?.includes('BrightnessController')) {
       properties.push({
         namespace: 'Alexa.BrightnessController',
@@ -4260,7 +4489,8 @@ class DirectiveRouter {
         uncertaintyInMilliseconds: 0,
       });
     }
-    if (endpoint.capabilities?.includes('RangeController')) {
+    if (endpoint.capabilities?.includes('RangeController')
+        && !this._isGarageEndpoint(endpoint)) {
       const rangeValue = this._resolveRangeValue(endpoint);
       // No cached value yet → omit the property rather than fabricate
       // one. Alexa preserves the last-known value; better stale-but-real
@@ -4672,6 +4902,13 @@ module.exports = {
   // Binary-sensor ModeController — state-reporter uses this to emit
   // the dual ModeController property alongside ContactSensor/MotionSensor.
   MODE_INSTANCE_BINARY_SENSOR,
+  // Garage door (Gate + GARAGE_DOOR): instance, mode values and the shared
+  // position->mode rule, so state-reporter's ChangeReports match Discovery
+  // and ReportState exactly.
+  MODE_INSTANCE_GARAGE,
+  GARAGE_MODE_OPEN,
+  GARAGE_MODE_CLOSED,
+  garageModeFromPosition,
   // RangeController helpers — exported so state-reporter can apply the
   // same axis-inversion + range-bounds math when emitting ChangeReports.
   BLIND_TYPES,

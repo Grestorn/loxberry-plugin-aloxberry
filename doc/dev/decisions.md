@@ -61,6 +61,30 @@ it — no mapping logic is duplicated or can drift. There is intentionally a
 *wide* universal category whitelist (defence‑in‑depth) and a *narrow*
 per‑type picker list (UX).
 
+**The garage-door voice code is Alexa's, not ours.** A Gate can be exposed
+two ways. The default (`DOOR` + `RangeController`) accepts "open"/"close"/"set
+to 50 percent". The opt-in (`GARAGE_DOOR` + `Alexa.ModeController` with
+instance `GarageDoor.Position`) is the only shape Amazon recognises as a
+garage door, and recognition is the whole feature: Alexa's cloud then asks
+"What is your voice code?" before it dispatches an *open* (never a close).
+The code is set per device in the Alexa app and checked in Amazon's cloud —
+the daemon does not see it, validate it, or know it exists. Nothing about the
+PIN is implemented here; we only have to declare the endpoint exactly right.
+
+Consequences worth remembering, because none of them announce themselves:
+a near-miss shape (wrong category, extra `RangeController` on the same
+endpoint, a renamed instance) still yields a working control that is simply
+never gated, so `DevicesConfig._resolveArm` forces the pair to agree on load —
+demoting the *category* when the gated arm is missing (that is the shape every
+pre-0.7.1 install has on disk, and promoting it would silently make a working
+gate demand a code its owner never set), dropping the *extras* when it is
+present; `GARAGE_DOOR` must appear in *both* category allowlists (the daemon's
+`VALID_CATEGORIES` and the CGI's `%valid_cat`) or a save silently rewrites it
+to `OTHER`; the arm loses `PartiallyOpen`, since Alexa's mode is
+two-valued; and Amazon supports it only in de-DE, en-GB, en-US, es-ES, es-US,
+fr-FR and it-IT — nl-NL is absent, so Dutch households get a tile that
+ignores the voice verbs. Hence opt-in, with the trade-offs on the picker.
+
 **Identity + `devices.json` under `$LBPCONFIG`.** Only that directory is
 preserved by LoxBerry across plugin upgrades. Putting identity there means an
 upgrade doesn't silently break every Alexa link.

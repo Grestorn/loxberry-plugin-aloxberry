@@ -33,6 +33,7 @@ const { createHmac, randomUUID } = require('node:crypto');
 const {
   parseActiveMoods, parseColorState,
   BLIND_TYPES, RANGE_INSTANCE_BLINDS, RANGE_INSTANCE_SLIDER,
+  MODE_INSTANCE_GARAGE, garageModeFromPosition,
   rangeBoundsFor, mirrorInRange,
   thermostatScaleFor, alexaModeFromLoxone,
   polarize,
@@ -688,6 +689,32 @@ class StateReporter {
     // or Slider on `value`. The scale + axis flag come from the same helpers
     // the directive-router uses, so reads and writes can't disagree.
     if (kind === 'value' && BLIND_TYPES.has(type) && stateName === 'position') {
+      // A Gate in its GARAGE_DOOR rendering reports the same `position` state
+      // under a different Alexa capability: ModeController(GarageDoor.Position)
+      // instead of RangeController. Branch on what the device actually
+      // advertises rather than on the control type, because one Loxone Gate
+      // type backs both renderings.
+      //
+      // Emitting the RangeController property here regardless would not be
+      // harmless-but-wasteful: the downstream capability filter would drop it,
+      // and the garage door would then never send a proactive update at all —
+      // its tile would sit at whatever Alexa last saw until someone asked.
+      // Both halves are required, matching DirectiveRouter._isGarageEndpoint:
+      // the push and pull paths must agree on which rendering an endpoint has,
+      // or we would proactively report a property Discovery never advertised.
+      if (device?.displayCategory === 'GARAGE_DOOR'
+          && device?.capabilities?.includes('ModeController')) {
+        const mode = garageModeFromPosition(value);
+        if (mode == null) return [];
+        return [{
+          namespace: 'Alexa.ModeController',
+          instance:  MODE_INSTANCE_GARAGE,
+          name:      'mode',
+          value:     mode,
+          timeOfSample: new Date().toISOString(),
+          uncertaintyInMilliseconds: 0,
+        }];
+      }
       const n = Number(value);
       if (!Number.isFinite(n)) return [];
       // 0..1 Loxone position → 0..100 raw scale; rounding tames transient

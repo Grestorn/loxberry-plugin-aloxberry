@@ -340,6 +340,7 @@
     ventilationHours:'<TMPL_VAR NAME=DEVICES.VENTILATION_HOURS ESCAPE=JS>',
     modeLabelActive:'<TMPL_VAR NAME=DEVICES.MODE_LABEL_ACTIVE ESCAPE=JS>',
     modeLabelInactive:'<TMPL_VAR NAME=DEVICES.MODE_LABEL_INACTIVE ESCAPE=JS>',
+    garageNote:    '<TMPL_VAR NAME=DEVICES.GARAGE_NOTE ESCAPE=JS>',
   };
 
   // Hover tooltips (native title=""). Keyed text from the language ini so
@@ -358,6 +359,7 @@
     overrideHours:    '<TMPL_VAR NAME=DEVICES.TIP_OVERRIDE_HOURS ESCAPE=JS>',
     volumeStep:       '<TMPL_VAR NAME=DEVICES.TIP_VOLUME_STEP ESCAPE=JS>',
     invertPolarity:   '<TMPL_VAR NAME=DEVICES.TIP_INVERT_POLARITY ESCAPE=JS>',
+    garageNote:       '<TMPL_VAR NAME=DEVICES.TIP_GARAGE_NOTE ESCAPE=JS>',
     ventilationHours: '<TMPL_VAR NAME=DEVICES.TIP_VENTILATION_HOURS ESCAPE=JS>',
     modeLabelActive:  '<TMPL_VAR NAME=DEVICES.TIP_MODE_LABEL_ACTIVE ESCAPE=JS>',
     modeLabelInactive:'<TMPL_VAR NAME=DEVICES.TIP_MODE_LABEL_INACTIVE ESCAPE=JS>',
@@ -390,7 +392,7 @@
                     'THERMOSTAT','AIR_CONDITIONER','VENT',
                     'TEMPERATURE_SENSOR','HUMIDITY_SENSOR','AIR_QUALITY_MONITOR',
                     'CONTACT_SENSOR','MOTION_SENSOR',
-                    'INTERIOR_BLIND','EXTERIOR_BLIND','DOOR',
+                    'INTERIOR_BLIND','EXTERIOR_BLIND','DOOR','GARAGE_DOOR',
                     'SPEAKER','STREAMING_DEVICE','MUSIC_SYSTEM',
                     'SCENE_TRIGGER','ACTIVITY_TRIGGER','HUB',
                     'OTHER'];
@@ -916,6 +918,18 @@
         'ModeController', modeOn, tip.modeLabelActive));
       settingChildren.push(settingRow([' ' + i18n.modeLabelInactive + ' ', labelInactive],
         'ModeController', modeOn, tip.modeLabelInactive));
+    }
+    // Garage-door note — shown for every Gate row, whichever arm is active,
+    // because its job is to advertise a choice the user has not made yet. It
+    // is a static hint rather than a control: the actual opt-in is picking the
+    // GARAGE_DOOR category above, which the capability-coupling helpers then
+    // mirror onto the ModeController checkbox. Rendering it unconditionally
+    // also keeps it out of refreshSettingsDisabled(), which updates the
+    // settings row in place and would otherwise need a show/hide rule.
+    if (ctrl && ctrl.type === 'Gate') {
+      settingChildren.push(el('span', {
+        className: 'ax-hint', text: i18n.garageNote, title: tip.garageNote,
+      }));
     }
     // Ventilation manual-timer duration — shown only when the row is for a
     // Ventilation control. Independent of capability checkboxes since the

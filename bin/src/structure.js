@@ -159,18 +159,50 @@ const TYPE_MAP = Object.freeze({
     rangeAxisInverted: false,
     allowedCategories: ['INTERIOR_BLIND', 'EXTERIOR_BLIND', 'OTHER'],
   },
+  // Gate has two mutually-exclusive Alexa renderings, chosen by category:
+  //
+  //   DOOR / OTHER  → RangeController (default). Permissive: accepts
+  //                   "open"/"close"/"set to 50 percent", and the dispatcher
+  //                   snaps to Loxone's open/close/PartiallyOpen verbs. No
+  //                   voice-code prompt — Alexa treats it as a plain opening.
+  //
+  //   GARAGE_DOOR   → ModeController with instance GarageDoor.Position.
+  //                   This is the ONLY shape Alexa recognises as a garage
+  //                   door, and recognition is what buys the voice code:
+  //                   Amazon's cloud prompts "What is your voice code?" before
+  //                   dispatching an *open* to us (close is never gated).
+  //                   The code itself lives in Amazon's cloud and is set by
+  //                   the user per-device in the Alexa app — the daemon never
+  //                   sees it, validates it, or knows it exists. We just have
+  //                   to declare the endpoint in the exact documented shape.
+  //
+  // Two costs of the GARAGE_DOOR arm, both surfaced in the picker:
+  //   - PartiallyOpen is unreachable. Alexa's garage-door mode is strictly
+  //     two-valued (Position.Up / Position.Down); there is no "half" slot.
+  //   - Alexa supports the garage-door ModeController only in de-DE, en-GB,
+  //     en-US, es-ES, es-US, fr-FR and it-IT. nl-NL is NOT on that list, so a
+  //     Dutch household gets a tile that ignores "open"/"close" by voice.
+  // That is why DOOR stays the default and GARAGE_DOOR is opt-in.
   Gate: {
-    // DOOR (not GARAGE_DOOR) because GARAGE_DOOR has certification-grade
-    // requirements we can't meet from a Loxone-only daemon: it demands an
-    // Alexa.ModeController with a specific GarageDoor.Position semantics
-    // block, a user-set voice PIN before "open" dispatches at all, and
-    // skips nl-NL entirely from its supported-locale list. DOOR is permissive
-    // — accepts "open"/"close" against RangeController via SetRangeValue —
-    // and lets the existing Gate dispatcher in directive-router work
-    // unchanged.
     category: 'DOOR', capabilities: ['RangeController'],
+    optionalCapabilities: ['ModeController'],
+    // One physical gate is EITHER a percentage-position opening OR a
+    // two-state garage door — never both. Advertising both would give Alexa
+    // two competing ways to open the same gate, and the RangeController one
+    // would not be voice-code gated, silently defeating the whole point.
+    exclusiveCapabilities: ['RangeController', 'ModeController'],
     rangeAxisInverted: false,
-    allowedCategories: ['DOOR', 'OTHER'],
+    allowedCategories: ['DOOR', 'GARAGE_DOOR', 'OTHER'],
+    // Category<->capability lockstep (picker-only; the daemon ignores it).
+    // Note GARAGE_DOOR is deliberately the sole member of the ModeController
+    // arm and OTHER is NOT duplicated into it: a GarageDoor.Position
+    // ModeController on an OTHER tile is exactly the near-miss shape that
+    // Alexa accepts at discovery but never voice-code gates. Union of the two
+    // lists equals allowedCategories, as for every other type here.
+    capabilityCategories: {
+      RangeController: ['DOOR', 'OTHER'],
+      ModeController:  ['GARAGE_DOOR'],
+    },
   },
   // Generic analog Loxone control — Virtual Input (Slider) in Loxone Config.
   // Its own min/max/step from `details` drives Alexa's supportedRange, so a

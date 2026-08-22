@@ -57,6 +57,103 @@ async function withConfig(structureCache, fn) {
 
 (async () => {
 
+// A Gate whose category is GARAGE_DOOR must survive the load untouched. This
+// used to be a REMOVED_CATEGORY that the sanitizer silently rewrote to the
+// control type's default, and the rewrite is invisible to the user - the
+// device simply comes back as an ordinary door with no voice-code prompt.
+async function withGarageConfig(fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aloxberry-garage-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'devices.json'), JSON.stringify({
+      version: 1,
+      globals: { enabled: true, vacationGate: { enabled: false, controlUuid: null } },
+      devices: [
+        { uuid: 'ctrl-gate', enabled: true, friendlyName: 'Garagentor',
+          displayCategory: 'GARAGE_DOOR', capabilities: ['ModeController'], msNo: 1 },
+        { uuid: 'ctrl-bell', enabled: true, friendlyName: 'Klingel',
+          displayCategory: 'DOORBELL', capabilities: ['PowerController'], msNo: 1 },
+      ],
+    }));
+    const structureCache = {
+      hasStructure: () => true,
+      getControl: (uuid) => (uuid === 'ctrl-gate' ? { uuid, type: 'Gate' }
+                           : uuid === 'ctrl-bell' ? { uuid, type: 'Switch' } : null),
+    };
+    const cfg = new DevicesConfig({ configDir: dir, log: noopLog, structureCache });
+    await cfg.load();
+    await fn(cfg);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Hand-edited rows where the GARAGE_DOOR category and the capabilities
+// disagree. Both directions collapse onto the single arm Amazon actually
+// voice-code gates - see _resolveCapabilities for why neither is safe to keep.
+async function withCapsConfig(caps, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aloxberry-garagecaps-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'devices.json'), JSON.stringify({
+      version: 1,
+      globals: { enabled: true, vacationGate: { enabled: false, controlUuid: null } },
+      devices: [{ uuid: 'ctrl-gate', enabled: true, friendlyName: 'Garagentor',
+                  displayCategory: 'GARAGE_DOOR', capabilities: caps, msNo: 1 }],
+    }));
+    const cfg = new DevicesConfig({
+      configDir: dir, log: noopLog,
+      structureCache: { hasStructure: () => true,
+                        getControl: (u) => (u === 'ctrl-gate' ? { u, type: 'Gate' } : null) },
+    });
+    await cfg.load();
+    await fn(cfg);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+await test('a GARAGE_DOOR row claiming both arms is collapsed to the gated one', async () => {
+  await withCapsConfig(['ModeController', 'RangeController'], (cfg) => {
+    eq(cfg.list()[0].capabilities.join(','), 'ModeController',
+      'RangeController dropped (it would open the door without a voice code)');
+    eq(cfg.list()[0].displayCategory, 'GARAGE_DOOR', 'category kept');
+  });
+});
+
+await test('UPGRADE: a pre-0.7.1 Gate row keeps working instead of turning into a garage door', async () => {
+  // Exactly what every install older than 0.7.1 has on disk: back then Gate
+  // defaulted to GARAGE_DOOR while still being driven by RangeController.
+  // Alexa never gated that combination, so the owner has been using an
+  // ordinary position-controlled gate. Promoting it to the ModeController arm
+  // would silently make it demand a voice code they have not set — the gate
+  // would simply stop opening. Demote the category instead: same behaviour as
+  // before the upgrade, and the same result 0.7.1 itself produced.
+  await withCapsConfig(['RangeController'], (cfg) => {
+    const d = cfg.list()[0];
+    eq(d.displayCategory, 'DOOR', 'category demoted, not silently gated');
+    eq(d.capabilities.join(','), 'RangeController', 'the gate still works as it did');
+    // Same treatment the removed-category migration gets: written back to disk
+    // and flagged so the user is told to re-run discovery.
+    check(!!cfg.migrationPending, 'counted as a migration (write-back + banner)');
+  });
+});
+
+await test('GARAGE_DOOR survives the sanitizer; DOORBELL is still migrated away', async () => {
+  await withGarageConfig((cfg) => {
+    const byUuid = {};
+    cfg.list().forEach((d) => { byUuid[d.uuid] = d; });
+    eq(byUuid['ctrl-gate'].displayCategory, 'GARAGE_DOOR',
+      'GARAGE_DOOR is a supported category, not migrated');
+    eq(byUuid['ctrl-gate'].capabilities.join(','), 'ModeController',
+      'the ModeController arm is preserved');
+    // The other removed categories must keep being migrated - Switch → SWITCH.
+    eq(byUuid['ctrl-bell'].displayCategory, 'SWITCH',
+      'DOORBELL still migrates to the control type default');
+    // And the surviving category must reach the Alexa endpoint list intact.
+    const ep = cfg.toEndpoints().find((e) => e.uuid === 'ctrl-gate');
+    eq(ep?.displayCategories?.[0], 'GARAGE_DOOR', 'advertised as GARAGE_DOOR');
+  });
+});
+
 await test('both controls still exist → nothing is treated as an orphan', async () => {
   await withConfig(fakeStructure(['ctrl-alive', 'ctrl-deleted']), (cfg) => {
     eq(cfg.listOrphans().length, 0, 'no orphans');

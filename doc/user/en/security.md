@@ -108,6 +108,32 @@ the plugin and paste into the Alexa app. It expires after 10 minutes. No
 passwords are shared with Amazon. Unlinking the skill in the Alexa app, or
 hitting "Kill all Alexa pairings", revokes access.
 
+## 8. A gate can demand a spoken code before it opens
+
+Everything above is about keeping *other people* out of your system. This one
+is different: it guards against someone who is legitimately in earshot of your
+Echo — a visitor, a delivery, a child, a voice from an open window.
+
+A Loxone gate exposed in the **garage door** category is treated by Amazon as a
+garage door, which means:
+
+> *"Alexa, open the garage door."* → *"What is your voice code?"*
+
+The command only reaches your LoxBerry after the code matches. Three properties
+make this worth having:
+
+- **The code is checked in Amazon's cloud, before the command is ever sent.**
+  A wrong answer produces no traffic at all — your Miniserver never hears about
+  the attempt.
+- **Nothing in this project ever holds the code.** Not the plugin, not the
+  bridge, not the AWS Lambda. It cannot leak from here, because it is not here.
+- **Only opening is challenged.** Closing always goes straight through — being
+  locked out of shutting your own gate is the worse failure.
+
+It is **opt‑in per gate**, because it costs you partial positions and is not
+available in Dutch. Setup, trade‑offs and troubleshooting are in
+**[gates.md](gates.md)**.
+
 ---
 
 ## Summary
@@ -119,4 +145,5 @@ hitting "Kill all Alexa pairings", revokes access.
 | "Do my Loxone passwords go to Amazon?" | No — they never leave the LoxBerry. |
 | "What gets exposed?" | Only what you explicitly add, device by device. |
 | "Can I stop it instantly?" | Master off switch, operating-mode pause, and a one-click pairing kill. |
+| "Can someone in the room just shout my gate open?" | Not if you expose it as a garage door — Alexa demands a spoken code first, checked in Amazon's cloud. |
 | "Do I have to trust the project's servers?" | No — every cloud component is open source and self‑hostable. |

@@ -47,6 +47,10 @@ flowchart LR
   (anonymous, or per‑person via Visual ID) into a Loxone state via an Alexa
   Routine — no plugin changes needed. See
   [`doc/user/en/presence.md`](doc/user/en/presence.md).
+- **Garage doors ask for a voice code:** expose a Loxone gate in the
+  `GARAGE_DOOR` category and Alexa demands a spoken code before opening it —
+  checked in Amazon's cloud, never seen by the plugin or the bridge. See
+  [`doc/user/en/gates.md`](doc/user/en/gates.md).
 - **Self‑hosting:** run your own bridge and/or AWS backend — see
   [`doc/dev/`](doc/dev/README.md).
 

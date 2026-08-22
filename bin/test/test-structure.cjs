@@ -188,6 +188,35 @@ test('TimedSwitch offers SceneController as an exclusive alternative to Power', 
     'OTHER is shared by both (never force-flips)');
 });
 
+test('Gate couples GARAGE_DOOR to the voice-code-gated ModeController arm', () => {
+  const info = alexaInfoForType('Gate');
+  eq(info.capabilities[0], 'RangeController', 'default arm stays RangeController');
+  eq(info.category, 'DOOR', 'default category stays DOOR (garage door is opt-in)');
+  check(info.optionalCapabilities.indexOf('ModeController') >= 0,
+    'ModeController offered as the opt-in alternative');
+  check(info.exclusiveCapabilities.indexOf('RangeController') >= 0
+        && info.exclusiveCapabilities.indexOf('ModeController') >= 0,
+    'the two renderings are mutually exclusive');
+  check(info.allowedCategories.indexOf('GARAGE_DOOR') >= 0, 'GARAGE_DOOR selectable');
+  const cc = info.capabilityCategories;
+  check(!!cc, 'declares capabilityCategories');
+  check(cc.ModeController.indexOf('GARAGE_DOOR') >= 0,
+    'ModeController → GARAGE_DOOR');
+  check(cc.RangeController.indexOf('GARAGE_DOOR') < 0,
+    'RangeController does NOT list GARAGE_DOOR (a garage door is never a range)');
+  // Unlike every other coupled type, OTHER is deliberately NOT shared into the
+  // ModeController arm: a GarageDoor.Position ModeController on an OTHER tile
+  // is the near-miss shape Alexa accepts but never voice-code gates, so
+  // picking GARAGE_DOOR must always force-flip the capability.
+  check(cc.ModeController.indexOf('OTHER') < 0,
+    'OTHER is not shared into the garage arm (GARAGE_DOOR always force-flips)');
+  eq(cc.ModeController.length, 1, 'GARAGE_DOOR is the sole garage-arm category');
+  // Union of the arms must equal allowedCategories, as for every other type.
+  const union = cc.RangeController.concat(cc.ModeController).sort().join(',');
+  eq(union, info.allowedCategories.slice().sort().join(','),
+    'arm categories union to allowedCategories');
+});
+
 test('InfoOnlyAnalog couples both sensor arms to their categories', () => {
   const cc = alexaInfoForType('InfoOnlyAnalog').capabilityCategories;
   check(!!cc, 'declares capabilityCategories');

@@ -404,7 +404,7 @@ if ($page eq 'devices') {
     my ($catalogue, $cat_source, $cat_error) = fetch_catalogue($cgi);
     my ($devices, $globals) = read_devices_config_and_globals();
     # Migration banner — surfaced by the daemon when it silently downgraded
-    # a now-removed displayCategory (GARAGE_DOOR / DOORBELL / CAMERA) at
+    # a now-removed displayCategory (DOORBELL / CAMERA) at
     # startup. The user needs to re-run Alexa discovery to pick up the
     # corrected category. Cleared by the daemon when the user next saves
     # from the picker.
@@ -788,18 +788,24 @@ sub write_devices_config {
 # drops them silently (e.g., a "saved checkbox" that doesn't persist).
 sub sanitize_devices {
     my ($raw) = @_;
-    # GARAGE_DOOR/DOORBELL/CAMERA were removed: GARAGE_DOOR needs
-    # Alexa.ModeController+semantics+voice-PIN; DOORBELL needs
-    # Alexa.DoorbellEventSource; CAMERA needs a stream we can't supply from
-    # a Loxone-only daemon. Daemon-side migration in devices-config.js
-    # remaps existing entries to the control type's default before the
-    # CGI ever reads the persisted file again.
+    # DOORBELL/CAMERA were removed: DOORBELL needs Alexa.DoorbellEventSource;
+    # CAMERA needs a stream we can't supply from a Loxone-only daemon.
+    # Daemon-side migration in devices-config.js remaps existing entries to
+    # the control type's default before the CGI ever reads the persisted file
+    # again.
+    #
+    # GARAGE_DOOR is SUPPORTED (Gate only, ModeController arm) - it is what
+    # makes Alexa demand a voice code before opening. Dropping it from this
+    # list would not fail loudly: the save would silently rewrite the category
+    # to OTHER, and the door would come back as an ordinary tile with no
+    # voice-code prompt at all. Keep this list in step with VALID_CATEGORIES
+    # in bin/src/devices-config.js.
     my %valid_cat = map { $_ => 1 } qw(
         LIGHT SWITCH OUTLET SMARTPLUG FAN
         THERMOSTAT AIR_CONDITIONER VENT
         TEMPERATURE_SENSOR HUMIDITY_SENSOR AIR_QUALITY_MONITOR
         CONTACT_SENSOR MOTION_SENSOR
-        INTERIOR_BLIND EXTERIOR_BLIND DOOR
+        INTERIOR_BLIND EXTERIOR_BLIND DOOR GARAGE_DOOR
         SPEAKER STREAMING_DEVICE MUSIC_SYSTEM
         SCENE_TRIGGER ACTIVITY_TRIGGER HUB
         OTHER

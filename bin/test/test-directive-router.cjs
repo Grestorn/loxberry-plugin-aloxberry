@@ -6,6 +6,7 @@ const {
   DirectiveRouter,
   IMPLEMENTED_CAPABILITIES,
   parseSceneList,
+  garageModeFromPosition,
 } = require('../src/directive-router');
 
 // Local test fixture: a single name-based PowerController endpoint. Production
@@ -121,6 +122,29 @@ function gateEnv({ position = null, axisInverted = false } = {}) {
     description: 'Driveway Gate (Loxone Gate)',
     displayCategories: ['DOOR'],
     capabilities: ['RangeController'],
+    uuid: 'gate-uuid',
+    msNo: 1,
+    rangeAxisInverted: axisInverted,
+  }];
+  const structureCache = mockStructure([{
+    uuid: 'gate-uuid', type: 'Gate',
+    states: { position: 'gate-pos-uuid' },
+  }]);
+  const stateCache = mockStateCache(position != null ? { 'gate-pos-uuid': position } : {});
+  return { endpoints, structureCache, stateCache };
+}
+
+// The same Loxone Gate in its GARAGE_DOOR rendering: ModeController instead
+// of RangeController. `axisInverted` defaults to true here on purpose — it is
+// a leftover the picker may have written while the device was still a DOOR,
+// and the garage path must ignore it.
+function garageEnv({ position = null, axisInverted = true } = {}) {
+  const endpoints = [{
+    endpointId: 'alexa-gate-uuid',
+    friendlyName: 'Garage Door',
+    description: 'Garage Door (Loxone Gate)',
+    displayCategories: ['GARAGE_DOOR'],
+    capabilities: ['ModeController'],
     uuid: 'gate-uuid',
     msNo: 1,
     rangeAxisInverted: axisInverted,
@@ -1471,6 +1495,208 @@ function newRouter(endpoints, opts) {
       payload: { rangeValue: 50 },
     });
     eq(mock.calls[0].command, 'PartiallyOpen', 'snap to partial');
+  });
+
+  // --- Gate as GARAGE_DOOR (voice-code gated) ------------------------------
+  //
+  // The point of this arm is that Amazon recognises the endpoint and runs its
+  // own voice-code challenge before sending us an open. Recognition hangs on
+  // an exact shape, and a near-miss fails SILENTLY — Alexa still renders a
+  // working control, it just never asks for the code. These tests pin the
+  // shape, because nothing downstream will complain if it drifts.
+
+  await test('Garage door Discovery advertises the exact shape Alexa gates', async () => {
+    const env = garageEnv();
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'gd0' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const ep = resp?.event?.payload?.endpoints?.[0];
+    eq(ep?.displayCategories?.[0], 'GARAGE_DOOR', 'GARAGE_DOOR display category');
+    const mode = ep?.capabilities?.find((c) => c.interface === 'Alexa.ModeController');
+    eq(mode?.instance, 'GarageDoor.Position', "instance is Amazon's literal, not an Aloxberry.* one");
+    eq(mode?.configuration?.ordered, false, 'modes are unordered (no AdjustMode)');
+    const values = (mode?.configuration?.supportedModes || []).map((m) => m.value);
+    eq(values.join(','), 'Position.Up,Position.Down', 'both documented mode values');
+    // Without actionMappings the bare verbs have nowhere to land.
+    const actions = mode?.semantics?.actionMappings || [];
+    const openMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Open'));
+    const closeMap = actions.find((a) => (a.actions || []).includes('Alexa.Actions.Close'));
+    eq(openMap?.directive?.name, 'SetMode', 'Open maps to SetMode');
+    eq(openMap?.directive?.payload?.mode, 'Position.Up', 'Open -> Position.Up');
+    eq(closeMap?.directive?.payload?.mode, 'Position.Down', 'Close -> Position.Down');
+    const states = mode?.semantics?.stateMappings || [];
+    eq(states.find((m) => (m.states || []).includes('Alexa.States.Closed'))?.value,
+       'Position.Down', 'Closed state maps back to Position.Down');
+    // Both renderings at once would give Alexa an ungated way to open.
+    const range = ep?.capabilities?.find((c) => c.interface === 'Alexa.RangeController');
+    check(!range, 'no RangeController alongside the garage door');
+    // The light-mood branch must not also fire for a Gate.
+    const modes = (ep?.capabilities || []).filter((c) => c.interface === 'Alexa.ModeController');
+    eq(modes.length, 1, 'exactly one ModeController');
+  });
+
+  await test('Garage door — SetMode Position.Up -> open verb', async () => {
+    const env = garageEnv();
+    const { router, mock } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'SetMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd1' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { mode: 'Position.Up' },
+    });
+    eq(mock.calls[0].command, 'open', 'sends Loxone open');
+    const prop = resp?.context?.properties?.[0];
+    eq(prop?.instance, 'GarageDoor.Position', 'echoes under the instance Discovery advertised');
+    eq(prop?.value, 'Position.Up', 'echoes the applied mode');
+  });
+
+  await test('Garage door — SetMode Position.Down -> close verb', async () => {
+    const env = garageEnv();
+    const { router, mock } = newRouter(env.endpoints, env);
+    await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'SetMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd2' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { mode: 'Position.Down' },
+    });
+    eq(mock.calls[0].command, 'close', 'sends Loxone close');
+  });
+
+  await test('Garage door — a stale rangeAxisInverted must not reverse open/close', async () => {
+    // garageEnv defaults axisInverted=true. If the garage path ever started
+    // honouring it, "open" would send close — the worst possible direction for
+    // this bug: the user would work around it by saying "close" to open the
+    // door, and Alexa never asks for a voice code on that phrase.
+    const env = garageEnv({ axisInverted: true });
+    const { router, mock } = newRouter(env.endpoints, env);
+    await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'SetMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd3' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { mode: 'Position.Up' },
+    });
+    eq(mock.calls[0].command, 'open', 'open stays open with the axis flag set');
+  });
+
+  await test('Garage door — unknown mode is rejected without touching Loxone', async () => {
+    const env = garageEnv();
+    const { router, mock } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'SetMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd4' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { mode: 'Position.Sideways' },
+    });
+    eq(resp?.event?.payload?.type, 'INVALID_VALUE', 'INVALID_VALUE');
+    eq(mock.calls.length, 0, 'no Loxone command sent');
+  });
+
+  await test('Garage door — AdjustMode is refused, not turned into plus/minus', async () => {
+    const env = garageEnv();
+    const { router, mock } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'AdjustMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd5' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { modeDelta: 1 },
+    });
+    eq(resp?.event?.payload?.type, 'INVALID_DIRECTIVE', 'INVALID_DIRECTIVE');
+    eq(mock.calls.length, 0, 'no plus/minus reaches the gate');
+  });
+
+  await test('Garage door — ReportState maps position to the two modes', async () => {
+    const cases = [
+      [0,   'Position.Down', 'fully closed -> Position.Down'],
+      [0.3, 'Position.Up',   'partially open -> Position.Up (never counts as closed)'],
+      [1,   'Position.Up',   'fully open -> Position.Up'],
+    ];
+    for (const [position, expected, label] of cases) {
+      const env = garageEnv({ position });
+      const { router } = newRouter(env.endpoints, env);
+      const resp = await router.handle({
+        header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'gd6' },
+        endpoint: { endpointId: 'alexa-gate-uuid' },
+        payload: {},
+      });
+      const prop = (resp?.context?.properties || []).find(
+        (pr) => pr.namespace === 'Alexa.ModeController');
+      eq(prop?.value, expected, label);
+      eq(prop?.instance, 'GarageDoor.Position', 'reported under the advertised instance');
+    }
+  });
+
+  await test('Garage door — cold state cache omits the mode rather than guessing', async () => {
+    const env = garageEnv();          // no position cached
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'gd7' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: {},
+    });
+    const prop = (resp?.context?.properties || []).find(
+      (pr) => pr.namespace === 'Alexa.ModeController');
+    check(!prop, 'no mode property emitted from a cold cache');
+  });
+
+  await test('Garage door — a row claiming BOTH arms never advertises the ungated one', async () => {
+    // Only reachable by hand-editing devices.json (the picker couples the two,
+    // and devices-config normalises on load). It matters because the failure is
+    // not "nothing works": Alexa would gate the ModeController open and happily
+    // run "set the garage door to 100 percent" through RangeController with no
+    // voice code at all, so the prompt appears often enough to be trusted.
+    const env = garageEnv();
+    env.endpoints[0].capabilities = ['ModeController', 'RangeController'];
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.Discovery', name: 'Discover', payloadVersion: '3', messageId: 'gd8' },
+      payload: { scope: { type: 'BearerToken', token: 't' } },
+    });
+    const ifaces = (resp?.event?.payload?.endpoints?.[0]?.capabilities || [])
+      .map((c) => c.interface);
+    check(ifaces.indexOf('Alexa.ModeController') >= 0, 'the gated arm is advertised');
+    check(ifaces.indexOf('Alexa.RangeController') < 0, 'the ungated arm is suppressed');
+  });
+
+  await test('Garage door — ReportState also suppresses the range half of a both-arms row', async () => {
+    const env = garageEnv({ position: 0.5 });
+    env.endpoints[0].capabilities = ['ModeController', 'RangeController'];
+    const { router } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa', name: 'ReportState', payloadVersion: '3', messageId: 'gd9' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: {},
+    });
+    const namespaces = (resp?.context?.properties || []).map((pr) => pr.namespace);
+    check(namespaces.indexOf('Alexa.ModeController') >= 0, 'mode reported');
+    check(namespaces.indexOf('Alexa.RangeController') < 0, 'no range reported alongside it');
+  });
+
+  await test('Garage door — SetMode on the garage instance is refused for a non-garage endpoint', async () => {
+    // A DOOR-category Gate is not voice-code gated by Alexa, so accepting the
+    // garage instance here would open it on an unchallenged directive.
+    const env = garageEnv();
+    env.endpoints[0].displayCategories = ['DOOR'];
+    const { router, mock } = newRouter(env.endpoints, env);
+    const resp = await router.handle({
+      header: { namespace: 'Alexa.ModeController', name: 'SetMode', payloadVersion: '3',
+                instance: 'GarageDoor.Position', messageId: 'gd10' },
+      endpoint: { endpointId: 'alexa-gate-uuid' },
+      payload: { mode: 'Position.Up' },
+    });
+    eq(resp?.event?.payload?.type, 'INVALID_VALUE', 'rejected');
+    eq(mock.calls.length, 0, 'no Loxone command sent');
+  });
+
+  await test('garageModeFromPosition — empty values resolve to null, not "closed"', async () => {
+    eq(garageModeFromPosition(0),     'Position.Down', '0 -> closed');
+    eq(garageModeFromPosition(0.004), 'Position.Down', 'jitter below half a percent -> closed');
+    eq(garageModeFromPosition(0.02),  'Position.Up',   '2% open -> open');
+    eq(garageModeFromPosition(null),      null, 'null -> null');
+    eq(garageModeFromPosition(undefined), null, 'undefined -> null');
+    eq(garageModeFromPosition(''),        null, 'empty string -> null');
+    eq(garageModeFromPosition('nope'),    null, 'non-numeric -> null');
   });
 
   await test('Gate — ReportState reads continuous position', async () => {
