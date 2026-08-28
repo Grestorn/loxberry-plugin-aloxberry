@@ -3,10 +3,6 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENCE)
 [![LoxBerry](https://img.shields.io/badge/LoxBerry-%3E%3D3.0-green.svg)](https://www.loxwiki.eu/display/LOXBERRY/LoxBerry)
 
-> ⚠️ **Public beta.** This is a public beta release intended for a
-> limited circle of friendly‑user testers. Expect rough edges, breaking
-> changes between versions, and occasional re‑linking. Please report issues.
-
 Open‑source Amazon Alexa Smart Home integration for the **Loxone** home
 automation system, running as a **LoxBerry** plugin.
 
