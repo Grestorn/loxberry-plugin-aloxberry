@@ -2,12 +2,6 @@
 
 🇬🇧 **[This documentation in English →](../en/README.md)**
 
-> ⚠️ **Öffentliche Beta (v0.5.0).** Diese Version ist eine öffentliche Beta für
-> eine begrenzte Anzahl freundlicher Tester. Sie funktioniert, hat aber noch
-> Ecken und Kanten, kann zwischen Updates inkompatible Änderungen haben und
-> gelegentlich ein erneutes Verknüpfen von Alexa erfordern. Rückmeldungen sind
-> sehr willkommen.
-
 Steuere deine **Loxone**-Hausautomation per Sprache über **Amazon Alexa** —
 „Alexa, mach das Wohnzimmerlicht aus", „Alexa, stelle das Schlafzimmer auf
 21 Grad", „Alexa, fahre die Jalousien runter".
